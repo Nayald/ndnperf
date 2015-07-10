@@ -1,0 +1,5 @@
+*.class
+java/server/.idea/
+java/server/out/
+java/client/.idea/
+java/client/out/
