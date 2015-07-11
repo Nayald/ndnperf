@@ -11,8 +11,8 @@
 #include <ndn-cxx/interest.hpp>
 #include <ndn-cxx/data.hpp>
 #include <ndn-cxx/security/key-chain.hpp>
-#include <ndn-cxx/security/signing-helpers.hpp>
-#include <ndn-cxx/security/signing-info.hpp>
+//#include <ndn-cxx/security/signing-helpers.hpp>
+//#include <ndn-cxx/security/signing-info.hpp>
 
 #include <boost/asio.hpp>
 #include <boost/bind.hpp>
@@ -92,7 +92,7 @@ public:
 		while(true){
 			std::this_thread::sleep_for(std::chrono::seconds(4));
 			time=std::chrono::system_clock::to_time_t(std::chrono::system_clock::now());
-			std::cout<< std::put_time(std::localtime(&time), "%d %B %Y %H:%M:%S - ") << (count>>12) << " KB/s" << std::endl;
+			std::cout /*<< std::put_time(std::localtime(&time), "%d %B %Y %H:%M:%S - ")*/ << (count>>12) << " KB/s" << std::endl;
 			count=0;
 		}
 	}
