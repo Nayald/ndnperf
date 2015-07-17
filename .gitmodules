@@ -1,0 +1,6 @@
+[submodule "java/jndn"]
+	path = java/jndn
+	url = https://github.com/named-data/jndn.git
+[submodule "java/protobuf"]
+	path = java/protobuf
+	url = https://github.com/google/protobuf.git
