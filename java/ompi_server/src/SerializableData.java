@@ -17,11 +17,11 @@ public class SerializableData extends Data {
         super(data);
     }
 
-    public byte[] serialize() {
+    public ByteBuffer serialize() {
         int name_size = this.getName().toUri().getBytes(Charset.defaultCharset()).length;
         int content_size = this.getContent().buf() != null ? this.getContent().buf().capacity() : 0;
         int signature_size = this.getSignature().getSignature().buf() != null ? this.getSignature().getSignature().buf().capacity() : 0;
-        ByteBuffer buffer = ByteBuffer.allocate(name_size + content_size + signature_size + 3 * 4 + 8);
+        ByteBuffer buffer = ByteBuffer.allocateDirect(name_size + content_size + signature_size + 3 * 4 + 8);
         buffer.putInt(name_size).put(this.getName().toUri().getBytes(Charset.defaultCharset()))
                 .putDouble(this.getMetaInfo().getFreshnessPeriod())
                 .putInt(content_size);
@@ -30,39 +30,42 @@ public class SerializableData extends Data {
         buffer.putInt(signature_size);
         if (this.getSignature().getSignature().buf() != null)
             buffer.put(this.getSignature().getSignature().buf());
-        return buffer.array();
+        return buffer;
     }
 
-    public void deserialize(byte[] raw) {
-        ByteBuffer buffer = ByteBuffer.allocate(raw.length);
+    public void deserialize(byte[] raw){
+        ByteBuffer buffer=ByteBuffer.allocateDirect(raw.length);
         buffer.put(raw);
         buffer.flip();
+        deserialize(buffer);
+    }
 
+    public void deserialize(ByteBuffer raw) {
         //get the name
-        int name_size = buffer.getInt();
+        int name_size = raw.getInt();
         byte[] name = new byte[name_size];
         for (int i = 0; i < name_size; i++)
-            name[i] = buffer.get();
+            name[i] = raw.get();
         this.setName(new Name(new String(name, Charset.defaultCharset())));
 
         //get the freshness
-        this.getMetaInfo().setFreshnessPeriod(buffer.getDouble());
+        this.getMetaInfo().setFreshnessPeriod(raw.getDouble());
 
         //get the content
-        int content_size = buffer.getInt();
+        int content_size = raw.getInt();
         if (content_size > 0) {
             byte[] content = new byte[content_size];
             for (int i = 0; i < content_size; i++)
-                content[i] = buffer.get();
+                content[i] = raw.get();
             this.setContent(new Blob(content));
         }
 
         //get the signature
-        int signature_size = buffer.getInt();
+        int signature_size = raw.getInt();
         if (signature_size > 0) {
             byte[] signature = new byte[signature_size];
             for (int i = 0; i < signature_size; i++)
-                signature[i] = buffer.get();
+                signature[i] = raw.get();
             this.getSignature().setSignature(new Blob(signature));
         }
     }

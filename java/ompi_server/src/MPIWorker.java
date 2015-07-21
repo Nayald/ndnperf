@@ -1,14 +1,18 @@
 import mpi.MPI;
 import mpi.MPIException;
+import mpi.Request;
+import mpi.Status;
 import net.named_data.jndn.Name;
 import net.named_data.jndn.security.*;
 import net.named_data.jndn.security.SecurityException;
 import net.named_data.jndn.security.identity.IdentityManager;
 import net.named_data.jndn.security.identity.MemoryIdentityStorage;
 import net.named_data.jndn.security.identity.MemoryPrivateKeyStorage;
+import net.named_data.jndn.transport.Transport;
 import net.named_data.jndn.util.Blob;
 
 import java.nio.ByteBuffer;
+import java.nio.IntBuffer;
 import java.nio.file.Files;
 import java.nio.file.Paths;
 import java.security.KeyFactory;
@@ -59,30 +63,37 @@ public class MPIWorker {
     }
 
     public void run(){
-        int[] length=new int[1];
-        byte[] message=new byte[1];;
+        Status status;
+        ByteBuffer message;
+        Request[] requests=new Request[1];
         SerializableData serializableData_ = new SerializableData();
         while (true) {
             try {
-                System.out.println("worker at rank "+rank+" wait for jobs");
-                MPI.COMM_WORLD.recv(length, 1, MPI.INT, 0, 0);
-                message = new byte[length[0]];
-                MPI.COMM_WORLD.recv(message, length[0], MPI.BYTE, 0, 1);
-                System.out.println("worker at rank "+rank+" get job");
+                status=MPI.COMM_WORLD.iProbe(0,0);
+                if(status!=null) {
+                    //System.out.println(status.getCount(MPI.BYTE));
+                    message = ByteBuffer.allocateDirect(status.getCount(MPI.BYTE));
+                    MPI.COMM_WORLD.recv(message, message.capacity(), MPI.BYTE, 0, 0);
 
-                serializableData_.deserialize(message);
+                   // System.out.println("worker at rank " + rank + " get job");
 
-                try {
-                    keyChain.sign(serializableData_, certificateName);
-                } catch (net.named_data.jndn.security.SecurityException e) {
-                    e.printStackTrace();
-                }
-                message = serializableData_.serialize();
-                length[0] = message.length;
-                System.out.println("worker at rank "+rank+" send message");
-                MPI.COMM_WORLD.send(length, 1, MPI.INT, 0, 0);
-                MPI.COMM_WORLD.send(message, length[0], MPI.BYTE, 0, 1);
+                    serializableData_.deserialize(message);
+
+                    try {
+                        keyChain.sign(serializableData_, certificateName);
+                    } catch (net.named_data.jndn.security.SecurityException e) {
+                        e.printStackTrace();
+                    }
+                    message = serializableData_.serialize();
+
+                    //System.out.println("worker at rank " + rank + " send message");
+                    //message.flip();
+                    MPI.COMM_WORLD.iSend(message, message.capacity(), MPI.BYTE, 0, 0);
+                    //Request.waitAll(requests);
+                }else Thread.sleep(5);
             } catch (MPIException e) {
+                e.printStackTrace();
+            } catch (InterruptedException e) {
                 e.printStackTrace();
             }
         }
