@@ -89,10 +89,12 @@ public:
 
 	void display(){
 		std::time_t time;
-		while(true){
+    		char mbstr[28];
+    		while(true){
 			std::this_thread::sleep_for(std::chrono::seconds(4));
-			time=std::chrono::system_clock::to_time_t(std::chrono::system_clock::now());
-			std::cout /*<< std::put_time(std::localtime(&time), "%d %B %Y %H:%M:%S - ")*/ << (count>>12) << " KB/s" << std::endl;
+			time=std::time(NULL);
+			std::strftime(mbstr, sizeof(mbstr), "%c - ", std::localtime(&time));
+			std::cout << mbstr << (count>>12) << " KB/s" << std::endl;
 			count=0;
 		}
 	}

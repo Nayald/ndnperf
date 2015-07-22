@@ -73,7 +73,7 @@ public class MPIWorker {
                 if(status!=null) {
                     //System.out.println(status.getCount(MPI.BYTE));
                     message = ByteBuffer.allocateDirect(status.getCount(MPI.BYTE));
-                    MPI.COMM_WORLD.recv(message, message.capacity(), MPI.BYTE, 0, 0);
+                    MPI.COMM_WORLD.iRecv(message, message.capacity(), MPI.BYTE, 0, 0).free();
 
                    // System.out.println("worker at rank " + rank + " get job");
 

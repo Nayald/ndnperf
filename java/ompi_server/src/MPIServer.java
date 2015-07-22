@@ -97,7 +97,7 @@ public class MPIServer implements OnInterestCallback, OnRegisterFailed{
                 while (status != null) {
                     //System.out.println(status.getError()+" "+status.getCount(MPI.BYTE)+" "+status.getSource());
                     message = ByteBuffer.allocateDirect(status.getCount(MPI.BYTE));
-                    MPI.COMM_WORLD.recv(message, message.capacity(), MPI.BYTE, status.getSource(), 0);
+                    MPI.COMM_WORLD.iRecv(message, message.capacity(), MPI.BYTE, status.getSource(), 0);
                     serializableData_.deserialize(message);
                     this.face.putData(serializableData_);
                     status = MPI.COMM_WORLD.iProbe(MPI.ANY_SOURCE, 0);
@@ -125,7 +125,7 @@ public class MPIServer implements OnInterestCallback, OnRegisterFailed{
             if(++next>=size)next=1;
             //System.out.println("server send job to worker at rank "+next);
             //System.out.println("send data : "+message);
-            MPI.COMM_WORLD.iSend(message, message.capacity(), MPI.BYTE, next, 0);
+            MPI.COMM_WORLD.iSend(message, message.capacity(), MPI.BYTE, next, 0).free();
         } catch (MPIException e) {
             e.printStackTrace();
         }
