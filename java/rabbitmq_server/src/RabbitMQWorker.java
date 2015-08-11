@@ -23,7 +23,7 @@ import java.util.concurrent.TimeoutException;
 public class RabbitMQWorker {
     private final static String QUEUE_NAME = "SignQueue";
     private final static String QUEUE_NAME2= "ReturnQueue";
-    private final static String HOSTNAME = "192.168.1.33";
+    private final static String HOSTNAME = "152.81.8.86";
     private final static int PORT = 5672;
 
     private Channel channel;
@@ -34,6 +34,7 @@ public class RabbitMQWorker {
 
     private final KeyChain keyChain;
     private final Name certificateName;
+    private String defaultdata;
 
     public RabbitMQWorker(){
         try {
@@ -41,14 +42,14 @@ public class RabbitMQWorker {
             factory.setHost(HOSTNAME);
             factory.setPort(PORT);
             System.out.println(factory.getUsername());
-            factory.setUsername("admin");
-            factory.setPassword("admin");
+            factory.setUsername("ndn");
+            factory.setPassword("ndn");
             factory.setVirtualHost("NDN");
             this.connection = factory.newConnection();
             this.channel = connection.createChannel();
-            this.channel.basicQos(1);
-            this.queueOk = this.channel.queueDeclare(QUEUE_NAME, true, false, false, null);
-            this.queueOk2 = this.channel.queueDeclare(QUEUE_NAME2, true, false, false, null);
+            this.channel.basicQos(2);
+            this.queueOk = this.channel.queueDeclare(QUEUE_NAME, false, false, true, null);
+            this.queueOk2 = this.channel.queueDeclare(QUEUE_NAME2, false, false, true, null);
             this.consumer = new QueueingConsumer(channel);
             channel.basicConsume(QUEUE_NAME, false, consumer);
         } catch (IOException | TimeoutException e) {
@@ -88,20 +89,29 @@ public class RabbitMQWorker {
         } catch (net.named_data.jndn.security.SecurityException e) {
             e.printStackTrace();
         }
+
+        try {
+            defaultdata = new String(Files.readAllBytes(Paths.get("DefaultData.txt")));
+        } catch (IOException e) {
+            e.printStackTrace();
+            System.exit(1);
+        }
     }
 
     public void run() {
+        int chunk;
         byte[] message;
         SerializableData data=new SerializableData();
         while (true) {
             try {
                 lastDelivery = consumer.nextDelivery();
                 message = lastDelivery.getBody();
-                data.deserialize(message);
+                chunk=data.deserialize_interest(message);
                 //System.out.println("Get data:\n\tname: "+data.getName().toUri()+"\n\tcontent: "+data.getContent()+"\n\tfreshness: "+data.getMetaInfo().getFreshnessPeriod());
                 channel.basicAck(lastDelivery.getEnvelope().getDeliveryTag(), false);
+                data.setContent(new Blob(defaultdata.substring(0, chunk)));
                 keyChain.sign(data,certificateName);
-                channel.basicPublish("", QUEUE_NAME2, null, data.serialize());
+                channel.basicPublish("", QUEUE_NAME2, null, data.serialize_signature());
             } catch (IOException | net.named_data.jndn.security.SecurityException | InterruptedException e) {
                 e.printStackTrace();
             }

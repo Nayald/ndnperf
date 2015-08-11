@@ -1,11 +1,11 @@
-import com.sun.corba.se.impl.protocol.giopmsgheaders.Message;
 import net.named_data.jndn.*;
 import net.named_data.jndn.encoding.EncodingException;
 import net.named_data.jndn.util.Blob;
 
 import java.io.IOException;
 import java.util.HashMap;
-import java.util.concurrent.*;
+import java.util.concurrent.ConcurrentLinkedDeque;
+import java.util.concurrent.Semaphore;
 
 /**
  * Created by xmarchal on 16/06/15.
@@ -18,6 +18,7 @@ public final class Client implements OnData, OnTimeout {
     private final Semaphore interest_pass, file_pass;
     private PendingFile pendingFile;
     private final Thread filemanager;
+    private final HashMap<String,Long> pendingInterests;
 
     public Client(final Face face, int window) {
         this.face = face;
@@ -26,6 +27,7 @@ public final class Client implements OnData, OnTimeout {
         interest_pass = new Semaphore(window, false);
         file_pass = new Semaphore(0, false);
         filemanager=new FileManager();
+        pendingInterests=new HashMap<>();
     }
 
     public final void addInterest(final Interest i) {
@@ -39,6 +41,7 @@ public final class Client implements OnData, OnTimeout {
                 try {
                     //System.out.println(interest.getName().toUri());
                     face.expressInterest(interest, this, this);
+                    pendingInterests.put(interest.getName().toUri(),System.nanoTime());
                 } catch (IOException e) {
                     e.printStackTrace();
                 }
@@ -55,15 +58,15 @@ public final class Client implements OnData, OnTimeout {
 
     @Override
     public final void onData(final Interest interest, final Data data) {
-        if (retry_table.get(interest.getName().toUri()) != null) retry_table.remove(interest.getName().toUri());
+        Stats.rttPlusOne(System.nanoTime()-pendingInterests.get(interest.getName().toUri()));
+	    if (retry_table.get(interest.getName().toUri()) != null) retry_table.remove(interest.getName().toUri());
         switch (data.getName().get(1).toEscapedString()) {
             case "benchmark":
                 //System.out.println("Throughput interest");
-                //i_queue_pass.release();
                 Stats.packetPlusOne(data.getContent().size());
-                //i_queue.put(interest);
                 try {
                     face.expressInterest(interest, this, this);
+                    pendingInterests.put(interest.getName().toUri(),System.nanoTime());
                 } catch (IOException e) {
                     e.printStackTrace();
                 }
@@ -72,7 +75,7 @@ public final class Client implements OnData, OnTimeout {
                 interest_pass.release();
                 if (data.getName().size() > 2) {
                     if (data.getName().size() > 3) {
-                        //System.out.println("file transfer data: " + data.getName().toUri());
+                        //System.out.println("file data: " + data.getName().toUri());
                         //System.out.println(data.getContent());
                         Stats.packetPlusOne(data.getContent().size());
                         Stats.indexpp();
@@ -83,7 +86,7 @@ public final class Client implements OnData, OnTimeout {
                             e.printStackTrace();
                         }
                     } else {
-                        //System.out.print("file size data: ");
+                        //System.out.print("file size: ");
                         long max = Long.parseLong(data.getContent().toString());
                         if (max == 0) {
                             System.out.println("\n File not found...");
@@ -97,7 +100,7 @@ public final class Client implements OnData, OnTimeout {
                         } catch (IOException e) {
                             e.printStackTrace();
                         }
-                        if(!filemanager.isAlive()) {
+                        if (!filemanager.isAlive()) {
                             filemanager.setPriority(Thread.MIN_PRIORITY);
                             filemanager.start();
                         }

@@ -18,7 +18,7 @@ public class Main {
                     try{
                         k=Integer.parseInt(args[1]);
                     }catch(Exception e){
-                        k=128;
+                        k=32;
                     }
                     System.out.println("Start benchmark with window size = " + k);
                     c=new Client(face,k);
@@ -35,13 +35,16 @@ public class Main {
                         try{
                             k=Integer.parseInt(args[2]);
                         }catch(Exception e){
-                            k=128;
+                            k=32;
                         }
                         c=new Client(face,k-1);
                         new Stats("download").start();
                         c.addInterest(new Interest(n,4000));
                         c.run();
                     }
+                    break;
+                default:
+                    System.out.println("usage: java Main (benchmark | download filename) [emission window size]");
                     break;
             }
         }

@@ -9,10 +9,17 @@ public class Stats extends Thread{
     private static long bytes;
     private static long start=System.currentTimeMillis();
     private static long index,max=1;
+    private static long rtttime=0;
+    private static long rttcpt=0;
 
     public static synchronized void packetPlusOne(int b){
         packet++;
         bytes+=b;
+    }
+
+    public static synchronized void rttPlusOne(long r){
+        rttcpt++;
+        rtttime+=r;
     }
 
     public static synchronized void setMax(long m){
@@ -37,9 +44,11 @@ public class Stats extends Thread{
                 while (true) {
                     try {
                         Thread.sleep(2000);
-                        System.out.println(new SimpleDateFormat("d MMM yyyy HH:mm:ss").format(new Date()) + " - " + (bytes >> 11) + " KB/s (" + (packet >> 1) + " pkt/s)");
+                        System.out.println(new SimpleDateFormat("d MMM yyyy HH:mm:ss").format(new Date()) + " - " + (bytes >> 11) + " KB/s (" + (packet >> 1) + " pkt/s), latency = "+ rtttime/(1000000f*(rttcpt>0?rttcpt:1))+"ms");
                         packet = 0;
                         bytes = 0;
+                        rtttime =0;
+                        rttcpt =0;
                     } catch (InterruptedException e) {
                         e.printStackTrace();
                     }

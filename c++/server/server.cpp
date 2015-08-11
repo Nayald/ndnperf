@@ -11,8 +11,8 @@
 #include <ndn-cxx/interest.hpp>
 #include <ndn-cxx/data.hpp>
 #include <ndn-cxx/security/key-chain.hpp>
-//#include <ndn-cxx/security/signing-helpers.hpp>
-//#include <ndn-cxx/security/signing-info.hpp>
+#include <ndn-cxx/security/signing-helpers.hpp>
+#include <ndn-cxx/security/signing-info.hpp>
 
 #include <boost/asio.hpp>
 #include <boost/bind.hpp>
@@ -34,6 +34,7 @@ const char* data8192="BpnonSeO1WTGervFuCTQA8GPaM7RM4qw5ctOAP4gr3W8p8rlIcjyoI60xo
 
 class Server{
 private:
+	bool cont;
 	Face face;
 	const char* prefix;
 	KeyChain keyChain;
@@ -45,7 +46,7 @@ private:
 	int content_size;
 
 public:
-	Server(const char* prefix, int thread_count, int chunk_size):prefix(prefix),k(thread_count),count(0){
+	Server(const char* prefix, int thread_count, int chunk_size):cont(true),prefix(prefix),k(thread_count),count(0){
 		t=new std::thread[k+1];
 		shared_ptr<Buffer> buf = make_shared<Buffer>(data8192,chunk_size);
 		content=Block(tlv::Content,buf);
@@ -54,6 +55,7 @@ public:
 	}
 
 	~Server() {
+		cont=false;
 		for(int i=0;i<k;++i)
 			t[i].join();
 		delete[] t;
@@ -74,14 +76,15 @@ public:
 	void process() {
 		Interest i;
 		shared_ptr<Data> data;
-		while(true){
+		while(cont){
 			queue.wait_dequeue(i);
 			//std::cout << "interest receive !" << std::endl;
 			//std::cout << i.getName() << std::endl;
 			data = make_shared<Data>(i.getName());
 			data->setFreshnessPeriod(time::milliseconds(0));
 			data->setContent(content);
-			keyChain.sign(*data);
+			//keyChain.sign(*data);
+			keyChain.sign(*data, signingWithSha256());
 			face.put(*data);
 			count+=content_size;
 		}
@@ -90,7 +93,7 @@ public:
 	void display(){
 		std::time_t time;
     		char mbstr[28];
-    		while(true){
+    		while(cont){
 			std::this_thread::sleep_for(std::chrono::seconds(4));
 			time=std::time(NULL);
 			std::strftime(mbstr, sizeof(mbstr), "%c - ", std::localtime(&time));
@@ -111,7 +114,7 @@ public:
 
 int main(int argc, char *argv[]) {
 	int thread_count=DEFAULT_THREAD_COUNT,chunk_size=DEFAULT_CHUNK_SIZE;
-	const char *prefix="/debit";
+	const char *prefix="/debit2";
 	for(int i=1;i<argc;i+=2){
 		switch(argv[i][1]){
 		case 't':
