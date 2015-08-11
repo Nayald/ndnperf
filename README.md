@@ -1,1 +1,2 @@
-# NDN_Benchmark_Test
+# ndnperf
+As part of my internship, I have to perform benchmarks in order to see the current performance of the NDN protocol but I didn't find any tools for that so I decide to build my own tool. The aim is to provide a tool which try to show us the NDN throughput we can achieve with given parameters (chunk_size, freshness, emission_window_size, thread_count, signature, rsa_key_lenght) and language implementation (Java, the main part, and C++).
