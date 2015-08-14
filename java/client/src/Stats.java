@@ -1,25 +1,18 @@
 import java.text.SimpleDateFormat;
 import java.util.Date;
+import java.util.concurrent.atomic.LongAdder;
 
 /**
  * Created by xavier on 16/06/15.
  */
-public class Stats extends Thread{
-    private static int packet;
-    private static long bytes;
-    private static long start=System.currentTimeMillis();
+public final class Stats extends Thread{
+    private static final LongAdder packet=new LongAdder(), bytes=new LongAdder(), rtt=new LongAdder();
     private static long index,max=1;
-    private static long rtttime=0;
-    private static long rttcpt=0;
 
-    public static synchronized void packetPlusOne(int b){
-        packet++;
-        bytes+=b;
-    }
-
-    public static synchronized void rttPlusOne(long r){
-        rttcpt++;
-        rtttime+=r;
+    public static final void packetPlusOne(final int b, final long r){
+        packet.add(1);
+        bytes.add(b);
+        rtt.add(r);
     }
 
     public static synchronized void setMax(long m){
@@ -36,19 +29,14 @@ public class Stats extends Thread{
         this.mode=mode;
     }
 
-
-
     public void run(){
         switch (mode) {
             case "benchmark":
                 while (true) {
                     try {
                         Thread.sleep(2000);
-                        System.out.println(new SimpleDateFormat("d MMM yyyy HH:mm:ss").format(new Date()) + " - " + (bytes >> 11) + " KB/s (" + (packet >> 1) + " pkt/s), latency = "+ rtttime/(1000000f*(rttcpt>0?rttcpt:1))+"ms");
-                        packet = 0;
-                        bytes = 0;
-                        rtttime =0;
-                        rttcpt =0;
+                        final long pkt=packet.sumThenReset();
+                        System.out.println(new SimpleDateFormat("d MMM yyyy HH:mm:ss").format(new Date()) + " - " + (bytes.sumThenReset() >> 11) + " KB/s (" + (pkt >> 1) + " pkt/s), latency = "+ rtt.sumThenReset()/(1000000f*pkt)+"ms");
                     } catch (InterruptedException e) {
                         e.printStackTrace();
                     }
@@ -63,12 +51,11 @@ public class Stats extends Thread{
                         for (long count = dotCount; count < 50; count++) {
                             sb.append(" ");
                         }
-                        sb.append("] "+ (bytes >> 10) + " KB/s");
+                        sb.append("] "+ (bytes.sumThenReset() >> 10) + " KB/s");
                         for (int count = 0; count < sb.length(); count++) {
                             System.out.print("\r");
                         }
                         System.out.print(sb.toString());
-                        bytes=0;
                     try {
                         Thread.sleep(1000);
                     } catch (InterruptedException e) {

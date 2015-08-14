@@ -26,12 +26,11 @@ public final class BasicServer implements OnInterestCallback, OnRegisterFailed {
     private final Data data_model;
     private final KeyChain keyChain;
     private final Name certificateName;
-    private final LinkedBlockingDeque<Interest> queue;
 
     public BasicServer(Face face, int chunk, int freshness) throws net.named_data.jndn.security.SecurityException {
         this.face = face;
 
-        this.default_data = chunk > 0 ? DATA8192.substring(0, chunk) : DATA8192;
+        this.default_data = chunk > 0 && chunk <= 8192 ? DATA8192.substring(0, chunk) : DATA8192;
         System.out.println("Chunk size set to " + this.default_data.length() + " Bytes");
 
         this.data_model = new Data();
@@ -72,8 +71,6 @@ public final class BasicServer implements OnInterestCallback, OnRegisterFailed {
         privateKeyStorage.setKeyPairForKeyName(keyName, KeyType.RSA, publicKey, privateKey);
         face.setCommandSigningInfo(keyChain, certificateName);
         //System.out.println(certificateName.toUri());
-
-        this.queue = new LinkedBlockingDeque<>();
     }
 
     @Override
@@ -81,8 +78,8 @@ public final class BasicServer implements OnInterestCallback, OnRegisterFailed {
         Data d1 = new Data(data_model);
         d1.setName(interest.getName());
         try {
-            //keyChain.signWithSha256(d1);
-            keyChain.sign(d1, certificateName);
+            keyChain.signWithSha256(d1);
+            //keyChain.sign(d1, certificateName);
             face.putData(d1);
             Stats.packetPlusOne(default_data.length());
         } catch (Exception e) {
@@ -98,9 +95,9 @@ public final class BasicServer implements OnInterestCallback, OnRegisterFailed {
 
     public static void main(String[] args) throws net.named_data.jndn.security.SecurityException {
         Face f=new Face();
-        BasicServer p=new BasicServer(f,8192,0);
+        BasicServer s=new BasicServer(f,8192,0);
         try {
-            f.registerPrefix(new Name("/debit"),p,p);
+            f.registerPrefix(new Name("/debit"),s,s);
         } catch (IOException e) {
             e.printStackTrace();
         }

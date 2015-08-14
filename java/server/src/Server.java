@@ -20,6 +20,8 @@ import java.security.PrivateKey;
 import java.security.interfaces.RSAPrivateKey;
 import java.security.spec.PKCS8EncodedKeySpec;
 import java.util.HashMap;
+import java.util.concurrent.Executor;
+import java.util.concurrent.Executors;
 import java.util.concurrent.LinkedBlockingDeque;
 
 /**
@@ -31,18 +33,21 @@ public final class Server implements OnInterestCallback, OnRegisterFailed {
 
     private final Face face;
     private final String default_data;
+    private final int max_chunk_size;
     private final Data data_model;
     private final KeyChain keyChain;
     private final Name certificateName;
     private final boolean rsa;
     private final HashMap<String, FileChannel> pending_files;
-    private final LinkedBlockingDeque<Interest> queue;
+    private final LinkedBlockingDeque<Name> queue;
+    //private final Executor executor;
 
-    public Server(Face face, int chunk, int freshness, int thread_count, boolean rsa) throws net.named_data.jndn.security.SecurityException {
+    public Server(final Face face, int chunk, int freshness, int thread_count, boolean rsa) throws net.named_data.jndn.security.SecurityException {
         this.face = face;
 
-        this.default_data = chunk > 0 && chunk < DATA8192.length() ? DATA8192.substring(0, chunk) : DATA8192;
-        System.out.println("Chunk size set to " + this.default_data.length() + " Bytes");
+        this.default_data = chunk > 0 && chunk <= 8192 ? DATA8192.substring(0, chunk) : DATA8192;
+        this.max_chunk_size=this.default_data.length();
+        System.out.println("Chunk size set to " + max_chunk_size + " Bytes");
 
         this.data_model = new Data();
         MetaInfo m = new MetaInfo();
@@ -80,130 +85,222 @@ public final class Server implements OnInterestCallback, OnRegisterFailed {
         }
         identityStorage.addKey(keyName, KeyType.RSA, new Blob(publicKey, false));
         privateKeyStorage.setKeyPairForKeyName(keyName, KeyType.RSA, publicKey, privateKey);
-        face.setCommandSigningInfo(keyChain, certificateName);
-        this.rsa=rsa;
-        System.out.println("Using "+(rsa?"RSA":"SHA-256")+" for benchmarks");
+        this.face.setCommandSigningInfo(keyChain, certificateName);
+        this.rsa = rsa;
+        System.out.println("Using " + (rsa ? "RSA" : "SHA-256") + " for benchmarks");
         //System.out.println(certificateName.toUri());
 
         this.queue = new LinkedBlockingDeque<>();
         this.pending_files = new HashMap<>();
 
         int data_thread_count = thread_count > 0 ? thread_count : CORES;
-        for (int i = 0; i < data_thread_count; i++) new DataHandler().start();
+        for(int i=0;i<data_thread_count;i++)new Thread(new DataProcess()).start();
+        //this.executor = Executors.newFixedThreadPool(data_thread_count);
         System.out.println(data_thread_count + " Thread initialized");
     }
 
     @Override
-    public final void onInterest(Name prefix, Interest interest, Face face, long interestFilterId, InterestFilter filter) {
-        queue.offerLast(interest);
+    public final void onInterest(final Name prefix, final Interest interest, final Face face, final long interestFilterId, final InterestFilter filter) {
+        queue.offerLast(interest.getName());
+        /*Name name = interest.getName();
+        switch ((name.size() > 1) ? name.get(1).toEscapedString() : "") {
+            case "benchmark":
+                executor.execute(new BenchmarkTask(name));
+                break;
+            case "download":
+                executor.execute(new DownloadTask(name));
+                break;
+            /*default:
+                //System.out.println("unknown interest: " + name.toUri());
+                final Data d4 = new Data(data_model).setName(name).setContent(new Blob("unknown"));
+                try {
+                    keyChain.signWithSha256(d4);
+                    face.putData(d4);
+                } catch (Exception e) {
+                    e.printStackTrace();
+                }*/
+        //}
+
+    }
+
+    /*private final class BenchmarkTask implements Runnable {
+        private Name name;
+
+        public BenchmarkTask(Name name) {
+            this.name = name;
+        }
+
+        public final void run() {
+            final Data d1 = new Data(data_model).setName(name).setContent(new Blob(default_data));
+            try {
+                if (rsa) keyChain.sign(d1, certificateName);
+                else keyChain.signWithSha256(d1);
+                face.putData(d1);
+                Stats.packetPlusOne(max_chunk_size);
+            } catch (Exception e) {
+                e.printStackTrace();
+            }
+        }
+    }
+
+    private final class DownloadTask implements Runnable {
+        private Name name;
+
+        public DownloadTask(Name name) {
+            this.name = name;
+        }
+
+        public final void run() {
+            if (name.size() > 2) {
+                if (name.size() > 3) {
+                    //System.out.println("file transfer interest: "+i.toUri());
+                    final String file_name = name.get(2).toEscapedString();
+                    long segment = 0;
+                    try {
+                        segment = name.get(3).toSegment();
+                    } catch (EncodingException e) {
+                        e.printStackTrace();
+                    }
+                    if (pending_files.get(file_name) == null) {
+                        if (new File(file_name).exists())
+                            try {
+                                pending_files.put(file_name, new RandomAccessFile(file_name, "r").getChannel());
+                            } catch (FileNotFoundException e) {
+                                e.printStackTrace();
+                            }
+                        else
+                            return;
+                    }
+                    final ByteBuffer buffer = ByteBuffer.allocateDirect(max_chunk_size);
+                    try {
+                        pending_files.get(file_name).read(buffer, max_chunk_size * segment);
+                    } catch (IOException e) {
+                        e.printStackTrace();
+                    }
+                    final Data d2 = new Data(data_model).setName(name);
+                    buffer.flip();
+                    d2.setContent(new Blob(buffer, true));
+                    //System.out.println(d2.getContent().toString());
+                    try {
+                        //keyChain.signWithSha256(d2);
+                        keyChain.sign(d2, certificateName);
+                        face.putData(d2);
+                        Stats.packetPlusOne(d2.getContent().size());
+                    } catch (Exception e) {
+                        e.printStackTrace();
+                    }
+                } else {
+                    //System.out.print("file size interest: ");
+                    final File f = new File(name.get(2).toEscapedString());
+                    final long fragment = f.exists() ? (f.length() + max_chunk_size - 1) / max_chunk_size : 0;
+                    final Data d2 = new Data(data_model).setName(name).setContent(new Blob("" + fragment));
+                    //System.out.println(fragment);
+                    try {
+                        //keyChain.signWithSha256(d2);
+                        keyChain.sign(d2, certificateName);
+                        face.putData(d2);
+                        Stats.packetPlusOne(d2.getContent().size());
+                    } catch (Exception e) {
+                        e.printStackTrace();
+                    }
+                }
+            }
+        }
+    }*/
+
+    private final class DataProcess implements Runnable {
+        private Name name;
+
+        public final void run() {
+            do try {
+                name = queue.take();
+                switch ((name.size() > 1) ? name.get(1).toEscapedString() : "") {
+                    case "benchmark":
+                        doBenchmark();
+                        break;
+                    case "download":
+                        doDownload();
+                        break;
+                }
+            } catch (Exception e) {
+                e.printStackTrace();
+            }
+            while (true);
+        }
+
+        public final void doBenchmark() throws Exception{
+            final Data d1 = new Data(data_model).setName(name).setContent(new Blob(default_data));
+            try {
+                if (rsa) keyChain.sign(d1, certificateName);
+                else keyChain.signWithSha256(d1);
+                face.putData(d1);
+                Stats.packetPlusOne(max_chunk_size);
+            } catch (Exception e) {
+                e.printStackTrace();
+            }
+        }
+
+        public final void doDownload() {
+            if (name.size() > 2) {
+                if (name.size() > 3) {
+                    //System.out.println("file transfer interest: "+i.toUri());
+                    final String file_name = name.get(2).toEscapedString();
+                    long segment = 0;
+                    try {
+                        segment = name.get(3).toSegment();
+                    } catch (EncodingException e) {
+                        e.printStackTrace();
+                    }
+                    if (pending_files.get(file_name) == null) {
+                        if (new File(file_name).exists())
+                            try {
+                                pending_files.put(file_name, new RandomAccessFile(file_name, "r").getChannel());
+                            } catch (FileNotFoundException e) {
+                                e.printStackTrace();
+                            }
+                        else
+                            return;
+                    }
+                    final ByteBuffer buffer = ByteBuffer.allocateDirect(max_chunk_size);
+                    try {
+                        pending_files.get(file_name).read(buffer, max_chunk_size * segment);
+                    } catch (IOException e) {
+                        e.printStackTrace();
+                    }
+                    final Data d2 = new Data(data_model).setName(name);
+                    buffer.flip();
+                    d2.setContent(new Blob(buffer, true));
+                    //System.out.println(d2.getContent().toString());
+                    try {
+                        //keyChain.signWithSha256(d2);
+                        keyChain.sign(d2, certificateName);
+                        face.putData(d2);
+                        Stats.packetPlusOne(d2.getContent().size());
+                    } catch (Exception e) {
+                        e.printStackTrace();
+                    }
+                } else {
+                    //System.out.print("file size interest: ");
+                    final File f = new File(name.get(2).toEscapedString());
+                    final long fragment = f.exists() ? (f.length() + max_chunk_size - 1) / max_chunk_size : 0;
+                    final Data d2 = new Data(data_model).setName(name).setContent(new Blob("" + fragment));
+                    //System.out.println(fragment);
+                    try {
+                        //keyChain.signWithSha256(d2);
+                        keyChain.sign(d2, certificateName);
+                        face.putData(d2);
+                        Stats.packetPlusOne(d2.getContent().size());
+                    } catch (Exception e) {
+                        e.printStackTrace();
+                    }
+                }
+            }
+        }
     }
 
     @Override
-    public final void onRegisterFailed(Name prefix) {
+    public final void onRegisterFailed(final Name prefix) {
         System.err.println("Failed to register prefix: " + prefix.toUri());
         System.exit(-1);
-    }
-
-    private final class DataHandler extends Thread {
-        private Name i;
-        public final void run() { // = true function onInterest()
-            while (true) {
-                try {
-                    i = queue.take().getName();
-                    switch ((i.size() > 1) ? i.get(1).toEscapedString() : "") {
-                        case "benchmark":
-                            //System.out.println("Throughput interest");
-                            Data d1 = new Data(data_model);
-                            d1.setContent(new Blob(default_data));
-                            d1.setName(i);
-                            try {
-                                if(rsa)keyChain.sign(d1, certificateName);
-                                else keyChain.signWithSha256(d1);
-                                face.putData(d1);
-                                Stats.packetPlusOne(default_data.length());
-                            } catch (Exception e) {
-                                //System.out.println(d1.getName()+""+d1.toString());
-                                e.printStackTrace();
-                            }
-                            break;
-                        case "download":
-                            if (i.size() > 2) {
-                                if (i.size() > 3) {
-                                    //System.out.println("file transfer interest: "+i.toUri());
-                                    String name = i.get(2).toEscapedString();
-                                    long segment = 0;
-                                    try {
-                                        segment = i.get(3).toSegment();
-                                    } catch (EncodingException e) {
-                                        e.printStackTrace();
-                                    }
-                                    if (pending_files.get(name) == null) {
-                                        if (new File(name).exists())
-                                            try {
-                                                pending_files.put(name, new RandomAccessFile(name, "r").getChannel());
-                                            } catch (FileNotFoundException e) {
-                                                e.printStackTrace();
-                                            }
-                                        else
-                                            break;
-                                    }
-                                    ByteBuffer buffer = ByteBuffer.allocateDirect(default_data.length());
-                                    try {
-                                        pending_files.get(name).read(buffer, default_data.length() * segment);
-                                    } catch (IOException e) {
-                                        e.printStackTrace();
-                                    }
-                                    Data d2 = new Data(data_model);
-                                    buffer.flip();
-                                    d2.setName(i);
-                                    d2.setContent(new Blob(buffer, true));
-                                    //System.out.println(d2.getContent().toString());
-                                    try {
-                                        //keyChain.signWithSha256(d2);
-                                        keyChain.sign(d2, certificateName);
-                                        face.putData(d2);
-                                        Stats.packetPlusOne(d2.getContent().size());
-                                    } catch (Exception e) {
-                                        e.printStackTrace();
-                                    }
-                                } else {
-                                    //System.out.print("file size interest: ");
-                                    File f = new File(i.get(2).toEscapedString());
-                                    long fragment = f.exists() ? (f.length() + default_data.length() - 1) / default_data.length() : 0;
-                                    Data d2 = new Data(data_model);
-                                    d2.setName(i);
-                                    d2.setContent(new Blob("" + fragment));
-                                    //System.out.println(fragment);
-                                    try {
-                                        //keyChain.signWithSha256(d2);
-                                        keyChain.sign(d2, certificateName);
-                                        face.putData(d2);
-                                        Stats.packetPlusOne(d2.getContent().size());
-                                    } catch (Exception e) {
-                                        e.printStackTrace();
-                                    }
-                                }
-                            }
-                            break;
-                        default:
-                            System.out.println("unknown interest: " + i.toUri());
-                            Data d4 = new Data(i);
-                            d4.setContent(new Blob("Possible prefix:\n" +
-                                    "/debit/benchmark\n" +
-                                    "/debit/download/[filename]\n"));
-                            try {
-                                keyChain.signWithSha256(d4);
-                                face.putData(d4);
-                            } catch (Exception e) {
-                                e.printStackTrace();
-                            }
-                    }
-
-                }catch (InterruptedException e) {
-                    e.printStackTrace();
-                }
-                //System.out.println(System.currentTimeMillis()-time);
-            }
-        }
     }
 }

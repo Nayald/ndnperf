@@ -22,12 +22,12 @@ public final class Client implements OnData, OnTimeout {
 
     public Client(final Face face, int window) {
         this.face = face;
-        this.retry_table = new HashMap<>(window);
+        this.retry_table = new HashMap<>(2*window,0.5f);
         i_queue = new ConcurrentLinkedDeque<>();
         interest_pass = new Semaphore(window, false);
         file_pass = new Semaphore(0, false);
         filemanager=new FileManager();
-        pendingInterests=new HashMap<>();
+        pendingInterests=new HashMap<>(2*window,0.5f);
     }
 
     public final void addInterest(final Interest i) {
@@ -58,72 +58,68 @@ public final class Client implements OnData, OnTimeout {
 
     @Override
     public final void onData(final Interest interest, final Data data) {
-        Stats.rttPlusOne(System.nanoTime()-pendingInterests.get(interest.getName().toUri()));
-	    if (retry_table.get(interest.getName().toUri()) != null) retry_table.remove(interest.getName().toUri());
+        Stats.packetPlusOne(data.getContent().size(),System.nanoTime()-pendingInterests.get(data.getName().toUri()));
+        retry_table.remove(data.getName().toUri());
         switch (data.getName().get(1).toEscapedString()) {
             case "benchmark":
-                //System.out.println("Throughput interest");
-                Stats.packetPlusOne(data.getContent().size());
-                try {
-                    face.expressInterest(interest, this, this);
-                    pendingInterests.put(interest.getName().toUri(),System.nanoTime());
-                } catch (IOException e) {
-                    e.printStackTrace();
-                }
+                nextBenchmarkInterest(interest);
                 break;
             case "download":
-                interest_pass.release();
-                if (data.getName().size() > 2) {
-                    if (data.getName().size() > 3) {
-                        //System.out.println("file data: " + data.getName().toUri());
-                        //System.out.println(data.getContent());
-                        Stats.packetPlusOne(data.getContent().size());
-                        Stats.indexpp();
-                        try {
-                            pendingFile.put(data.getName().get(3).toSegment(), data.getContent());
-                            file_pass.release();
-                        } catch (EncodingException e) {
-                            e.printStackTrace();
-                        }
-                    } else {
-                        //System.out.print("file size: ");
-                        long max = Long.parseLong(data.getContent().toString());
-                        if (max == 0) {
-                            System.out.println("\n File not found...");
-                            Main.cont = false;
-                            break;
-                        }
-                        // System.out.println(max);
-                        Stats.setMax(max);
-                        try {
-                            pendingFile = new PendingFile(data.getName().get(2).toEscapedString(), max);
-                        } catch (IOException e) {
-                            e.printStackTrace();
-                        }
-                        if (!filemanager.isAlive()) {
-                            filemanager.setPriority(Thread.MIN_PRIORITY);
-                            filemanager.start();
-                        }
-                        new Thread(() -> {
-                            for (long i = 0; i < max; i++) {
-                                Name n = new Name(interest.getName().getPrefix(3));
-                                n.appendSegment(i);
-                                try {
-                                    interest_pass.acquire();
-                                    i_queue.offerLast(new Interest(n, 4000));
-                                } catch (InterruptedException e) {
-                                    e.printStackTrace();
-                                }
-                            }
-                        }).start();
-                    }
-                }
-                break;
-            default:
-                System.err.println(data.getContent().toString());
+                nextDownloadInterest(data);
                 break;
         }
+    }
 
+    public final void nextBenchmarkInterest(final Interest interest){
+        try {
+            face.expressInterest(interest, this, this);
+            pendingInterests.put(interest.getName().toUri(),System.nanoTime());
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+    }
+
+    public final void nextDownloadInterest(final Data data){
+        interest_pass.release();
+        if (data.getName().size() > 3) {
+            Stats.indexpp();
+            try {
+                pendingFile.put(data.getName().get(3).toSegment(), data.getContent());
+                file_pass.release();
+            } catch (EncodingException e) {
+                e.printStackTrace();
+            }
+        } else if (data.getName().size() > 2) {
+            final long max = Long.parseLong(data.getContent().toString());
+            if (max == 0) {
+                System.out.println("\n File not found...");
+                Main.cont = false;
+                return;
+            }
+            Stats.setMax(max);
+            try {
+                pendingFile = new PendingFile(data.getName().get(2).toEscapedString(), max);
+            } catch (IOException e) {
+                e.printStackTrace();
+            }
+            if (!filemanager.isAlive()) {
+                filemanager.setPriority(Thread.MIN_PRIORITY);
+                filemanager.start();
+                new Thread(() -> {
+                    Name n;
+                    for (long i = 0; i < max; i++) {
+                        n = new Name(data.getName().getPrefix(3)).appendSegment(i);
+                        try {
+                            interest_pass.acquire();
+                            i_queue.offerLast(new Interest(n, 4000));
+                        } catch (InterruptedException e) {
+                            e.printStackTrace();
+                        }
+                    }
+                }).start();
+            }
+
+        }
     }
 
     @Override
