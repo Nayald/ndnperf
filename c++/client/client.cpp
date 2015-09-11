@@ -24,7 +24,7 @@
 
 using namespace ndn;
 
-#define DEFAULT_WINDOW 128
+#define DEFAULT_WINDOW 32
 
 class Client{
 private:
@@ -65,7 +65,7 @@ public:
 		//std::chrono::duration<double> duration = std::chrono::system_clock::now() - startTime;
 		//std::cout << duration.count() << std::endl;
 		//startTime=std::chrono::system_clock::now();
-		Name name = Name("/debit/benchmark/"+std::to_string(window++));		
+		Name name = Name("/debit2/benchmark/"+std::to_string(window++));		
 		Interest i= Interest(interest);
 		i.setName(name);
 		face.expressInterest(i,bind(&Client::on_data,this),

@@ -13,6 +13,8 @@ import java.security.KeyFactory;
 import java.security.PrivateKey;
 import java.security.interfaces.RSAPrivateKey;
 import java.security.spec.PKCS8EncodedKeySpec;
+import java.security.NoSuchAlgorithmException;
+import java.security.NoSuchProviderException;
 import java.util.concurrent.LinkedBlockingDeque;
 
 /**
@@ -78,10 +80,10 @@ public final class BasicServer implements OnInterestCallback, OnRegisterFailed {
         Data d1 = new Data(data_model);
         d1.setName(interest.getName());
         try {
-            keyChain.signWithSha256(d1);
-            //keyChain.sign(d1, certificateName);
+            final long time = System.nanoTime();
+            keyChain.sign(d1,certificateName);
             face.putData(d1);
-            Stats.packetPlusOne(default_data.length());
+            Stats.packetPlusOne(d1.getContent().size(),System.nanoTime()-time);
         } catch (Exception e) {
             e.printStackTrace();
         }
@@ -95,9 +97,48 @@ public final class BasicServer implements OnInterestCallback, OnRegisterFailed {
 
     public static void main(String[] args) throws net.named_data.jndn.security.SecurityException {
         Face f=new Face();
-        BasicServer s=new BasicServer(f,8192,0);
+	int chunk=0;
+        int freshness=0;
+        String prefix="/debit";
+        for(int i=0;i<args.length;i++){
+            switch(args[i]){
+                case "-c":
+                    try {
+                        chunk = Integer.parseInt(args[++i]);
+                    }catch (NumberFormatException ignored){}
+                        break;
+                case "-f":
+                    try {
+                        freshness = Integer.parseInt(args[++i]);
+                    }catch (NumberFormatException ignored){}
+                    break;
+                case "-k":
+                    try {
+                        KeyGenerator.main(new String[]{args[++i]});
+                    } catch (NoSuchAlgorithmException | NoSuchProviderException e) {
+                        e.printStackTrace();
+                    }
+                    break;
+                case "-p":
+                    prefix=args[++i];
+                    break;
+                case "-h":
+                default:
+                    System.out.println("usage: java Main [options...]" +
+                            "\noptions:" +
+                            "\n\t-c chunk_size\t\tspecify the size of the data block\n\t\t\t\t(default=max=8192)" +
+                            "\n\n\t-f freshness_period\tspecify the freshness period of the data\n\t\t\t\tin milliseconds (default=0)" +
+                            "\n\n\t-k new_RSA_key_length\tgenerate a new RSA key pair with the given size\n\t\t\t\tand store the two key at ./privateKey and\n\t\t\t\t./publicKey (default=RSA-2048 if no files)" +
+                            "\n\n\t-p prefix\t\tspecify the prefix of the server\n\t\t\t\t(default=/debit)" +
+                            "\n\n\t-h\t\t\tdisplay this help message");
+                    System.exit(-1);
+            }
+        }
+
+
+        BasicServer s=new BasicServer(f,chunk,freshness);
         try {
-            f.registerPrefix(new Name("/debit"),s,s);
+            f.registerPrefix(new Name(prefix),s,s);
         } catch (IOException e) {
             e.printStackTrace();
         }

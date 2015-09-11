@@ -1,0 +1,1 @@
+g++ -o ndnperfclient client.cpp -std=c++11 -Os -lndn-cxx -lboost_system -lboost_filesystem -lboost_date_time -lboost_iostreams -lboost_regex -lboost_program_options -lboost_chrono -lboost_random -lcryptopp -lsqlite3 -lrt -lpthread -I/usr/local/include -L/usr/local/lib

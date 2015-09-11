@@ -1,7 +1,6 @@
 import net.named_data.jndn.*;
 import net.named_data.jndn.encoding.EncodingException;
-import net.named_data.jndn.security.KeyChain;
-import net.named_data.jndn.security.KeyType;
+import net.named_data.jndn.security.*;
 import net.named_data.jndn.security.identity.IdentityManager;
 import net.named_data.jndn.security.identity.MemoryIdentityStorage;
 import net.named_data.jndn.security.identity.MemoryPrivateKeyStorage;
@@ -17,12 +16,11 @@ import java.nio.file.Files;
 import java.nio.file.Paths;
 import java.security.KeyFactory;
 import java.security.PrivateKey;
+import java.security.interfaces.ECPrivateKey;
 import java.security.interfaces.RSAPrivateKey;
 import java.security.spec.PKCS8EncodedKeySpec;
 import java.util.HashMap;
-import java.util.concurrent.Executor;
-import java.util.concurrent.Executors;
-import java.util.concurrent.LinkedBlockingDeque;
+import java.util.concurrent.*;
 
 /**
  * Created by MARCHAL Xavier on 16/06/15.
@@ -36,19 +34,22 @@ public final class Server implements OnInterestCallback, OnRegisterFailed {
     private final int max_chunk_size;
     private final Data data_model;
     private final KeyChain keyChain;
-    private final Name certificateName;
-    private final boolean rsa;
-    private final HashMap<String, FileChannel> pending_files;
-    private final LinkedBlockingDeque<Name> queue;
-    //private final Executor executor;
+    private final Name certificateNameD;
+	private Name certificateNameB;
+    private final char algo;
+    private final ConcurrentHashMap<String, FileChannel> pending_files;
+    private final BlockingQueue<Name> queue;
+    private final ConcurrentHashMap<String,Long> pending_interest;
 
-    public Server(final Face face, int chunk, int freshness, int thread_count, boolean rsa) throws net.named_data.jndn.security.SecurityException {
+    public Server(final Face face, String prefix, int chunk, int freshness, int thread_count, char algo, int ecdsakeylen) throws net.named_data.jndn.security.SecurityException {
         this.face = face;
 
+		//define the size of the max data sent per packet
         this.default_data = chunk > 0 && chunk <= 8192 ? DATA8192.substring(0, chunk) : DATA8192;
         this.max_chunk_size=this.default_data.length();
         System.out.println("Chunk size set to " + max_chunk_size + " Bytes");
-
+		
+		//define the packet model
         this.data_model = new Data();
         MetaInfo m = new MetaInfo();
         m.setFreshnessPeriod(freshness);
@@ -56,164 +57,94 @@ public final class Server implements OnInterestCallback, OnRegisterFailed {
         System.out.println("Fressness set to " + m.getFreshnessPeriod() + " ms");
         this.data_model.setContent(new Blob(default_data));
 
+		//define the certificate
         MemoryIdentityStorage identityStorage = new MemoryIdentityStorage();
         MemoryPrivateKeyStorage privateKeyStorage = new MemoryPrivateKeyStorage();
         this.keyChain = new KeyChain(new IdentityManager(identityStorage, privateKeyStorage));
-        Name keyName = new Name("/debit/DSK-123");
-        this.certificateName = keyName.getSubName(0, keyName.size() - 1).append("KEY").append(keyName.get(-1)).append("ID-CERT").append("0");
-        ByteBuffer publicKey;
-        ByteBuffer privateKey;
-        PrivateKey p;
-        try {
-            publicKey = ByteBuffer.wrap(Files.readAllBytes(Paths.get("./publicKey")));
-            privateKey = ByteBuffer.wrap(Files.readAllBytes(Paths.get("./privateKey")));
-            try {
-                p = KeyFactory.getInstance("RSA").generatePrivate(new PKCS8EncodedKeySpec(privateKey.array()));
-                System.out.println("Using custom " + ((RSAPrivateKey) p).getModulus().bitLength() + " bits RSA key pair");
-            } catch (Exception e1) {
-                e1.printStackTrace();
-            }
-        } catch (Exception e) {
-            publicKey = Keys.DEFAULT_RSA_PUBLIC_KEY_DER;
-            privateKey = Keys.DEFAULT_RSA_PRIVATE_KEY_DER;
-            try {
-                p = KeyFactory.getInstance("RSA").generatePrivate(new PKCS8EncodedKeySpec(privateKey.array()));
-                System.out.println("Using default " + ((RSAPrivateKey) p).getModulus().bitLength() + " bits RSA key pair");
-            } catch (Exception e1) {
-                e1.printStackTrace();
-            }
-        }
-        identityStorage.addKey(keyName, KeyType.RSA, new Blob(publicKey, false));
-        privateKeyStorage.setKeyPairForKeyName(keyName, KeyType.RSA, publicKey, privateKey);
-        this.face.setCommandSigningInfo(keyChain, certificateName);
-        this.rsa = rsa;
-        System.out.println("Using " + (rsa ? "RSA" : "SHA-256") + " for benchmarks");
-        //System.out.println(certificateName.toUri());
+        Name keyNameD = new Name(prefix+"/DSK-1");
+		this.certificateNameD = keyNameD.getSubName(0, keyNameD.size() - 1).append("KEY").append(keyNameD.get(-1)).append("ID-CERT").append("0");
+		ByteBuffer publicKey;
+		ByteBuffer privateKey;
+		PrivateKey p;
+		try {
+			publicKey = ByteBuffer.wrap(Files.readAllBytes(Paths.get("./publicKey")));
+			privateKey = ByteBuffer.wrap(Files.readAllBytes(Paths.get("./privateKey")));
+			try {
+			    p = KeyFactory.getInstance("RSA").generatePrivate(new PKCS8EncodedKeySpec(privateKey.array()));
+			    System.out.println("Using custom " + ((RSAPrivateKey) p).getModulus().bitLength() + " bits RSA key pair");
+			} catch (Exception e1) {
+			    e1.printStackTrace();
+			}
+		} catch (Exception e) {
+			publicKey = Keys.DEFAULT_RSA_PUBLIC_KEY_DER;
+			privateKey = Keys.DEFAULT_RSA_PRIVATE_KEY_DER;
+			try {
+			    p = KeyFactory.getInstance("RSA").generatePrivate(new PKCS8EncodedKeySpec(privateKey.array()));
+			    System.out.println("Using default " + ((RSAPrivateKey) p).getModulus().bitLength() + " bits RSA key pair");
+			} catch (Exception e1) {
+			    e1.printStackTrace();
+			}
+		}  
+		identityStorage.addKey(keyNameD, KeyType.RSA, new Blob(publicKey, true));
+		privateKeyStorage.setKeyPairForKeyName(keyNameD, KeyType.RSA, publicKey, privateKey);     
+		this.face.setCommandSigningInfo(keyChain, certificateNameD);
+		switch(algo){
+			case 'R':
+				certificateNameB=certificateNameD;
+				System.out.println("Using RSA for benchmarks");
+				break;
+			case 'S':
+				System.out.println("Using SHA-256 for benchmarks");
+				break;
+			case 'E':
+				Name keyNameB = new Name(prefix+"/DSK-2");
+       			this.certificateNameB = keyNameB.getSubName(0, keyNameB.size() - 1).append("KEY").append(keyNameB.get(-1)).append("ID-CERT").append("0");
+				privateKeyStorage.generateKeyPair(keyNameB,new EcdsaKeyParams(ecdsakeylen));
+				identityStorage.addKey(keyNameB, KeyType.ECDSA, new Blob(privateKeyStorage.getPublicKey(keyNameB).getDigest().buf(), true));
+				System.out.println("Using ECDSA-"+ecdsakeylen+" for benchmarks");
+				this.face.setCommandSigningInfo(keyChain, certificateNameB);
+				break;
+		}
+        this.algo = algo;
 
-        this.queue = new LinkedBlockingDeque<>();
-        this.pending_files = new HashMap<>();
+		//instanciate the map
+        this.pending_files = new ConcurrentHashMap<>();
+        this.pending_interest= new ConcurrentHashMap<>();
 
+		//start the threads
         int data_thread_count = thread_count > 0 ? thread_count : CORES;
+        this.queue = new LFBQ<>(data_thread_count);
         for(int i=0;i<data_thread_count;i++)new Thread(new DataProcess()).start();
-        //this.executor = Executors.newFixedThreadPool(data_thread_count);
         System.out.println(data_thread_count + " Thread initialized");
     }
 
     @Override
     public final void onInterest(final Name prefix, final Interest interest, final Face face, final long interestFilterId, final InterestFilter filter) {
-        queue.offerLast(interest.getName());
-        /*Name name = interest.getName();
-        switch ((name.size() > 1) ? name.get(1).toEscapedString() : "") {
-            case "benchmark":
-                executor.execute(new BenchmarkTask(name));
-                break;
-            case "download":
-                executor.execute(new DownloadTask(name));
-                break;
-            /*default:
-                //System.out.println("unknown interest: " + name.toUri());
-                final Data d4 = new Data(data_model).setName(name).setContent(new Blob("unknown"));
-                try {
-                    keyChain.signWithSha256(d4);
-                    face.putData(d4);
-                } catch (Exception e) {
-                    e.printStackTrace();
-                }*/
-        //}
+        pending_interest.put(interest.getName().toUri(),System.nanoTime());
+        queue.offer(interest.getName());
+	}
 
-    }
-
-    /*private final class BenchmarkTask implements Runnable {
-        private Name name;
-
-        public BenchmarkTask(Name name) {
-            this.name = name;
-        }
-
-        public final void run() {
-            final Data d1 = new Data(data_model).setName(name).setContent(new Blob(default_data));
+	//main loop
+	public final void run(){
+		while(true) {
             try {
-                if (rsa) keyChain.sign(d1, certificateName);
-                else keyChain.signWithSha256(d1);
-                face.putData(d1);
-                Stats.packetPlusOne(max_chunk_size);
+                face.processEvents();
+                Thread.sleep(5);
             } catch (Exception e) {
                 e.printStackTrace();
             }
         }
-    }
+	}
 
-    private final class DownloadTask implements Runnable {
-        private Name name;
-
-        public DownloadTask(Name name) {
-            this.name = name;
-        }
-
-        public final void run() {
-            if (name.size() > 2) {
-                if (name.size() > 3) {
-                    //System.out.println("file transfer interest: "+i.toUri());
-                    final String file_name = name.get(2).toEscapedString();
-                    long segment = 0;
-                    try {
-                        segment = name.get(3).toSegment();
-                    } catch (EncodingException e) {
-                        e.printStackTrace();
-                    }
-                    if (pending_files.get(file_name) == null) {
-                        if (new File(file_name).exists())
-                            try {
-                                pending_files.put(file_name, new RandomAccessFile(file_name, "r").getChannel());
-                            } catch (FileNotFoundException e) {
-                                e.printStackTrace();
-                            }
-                        else
-                            return;
-                    }
-                    final ByteBuffer buffer = ByteBuffer.allocateDirect(max_chunk_size);
-                    try {
-                        pending_files.get(file_name).read(buffer, max_chunk_size * segment);
-                    } catch (IOException e) {
-                        e.printStackTrace();
-                    }
-                    final Data d2 = new Data(data_model).setName(name);
-                    buffer.flip();
-                    d2.setContent(new Blob(buffer, true));
-                    //System.out.println(d2.getContent().toString());
-                    try {
-                        //keyChain.signWithSha256(d2);
-                        keyChain.sign(d2, certificateName);
-                        face.putData(d2);
-                        Stats.packetPlusOne(d2.getContent().size());
-                    } catch (Exception e) {
-                        e.printStackTrace();
-                    }
-                } else {
-                    //System.out.print("file size interest: ");
-                    final File f = new File(name.get(2).toEscapedString());
-                    final long fragment = f.exists() ? (f.length() + max_chunk_size - 1) / max_chunk_size : 0;
-                    final Data d2 = new Data(data_model).setName(name).setContent(new Blob("" + fragment));
-                    //System.out.println(fragment);
-                    try {
-                        //keyChain.signWithSha256(d2);
-                        keyChain.sign(d2, certificateName);
-                        face.putData(d2);
-                        Stats.packetPlusOne(d2.getContent().size());
-                    } catch (Exception e) {
-                        e.printStackTrace();
-                    }
-                }
-            }
-        }
-    }*/
-
+	//processing thread definition
     private final class DataProcess implements Runnable {
         private Name name;
 
         public final void run() {
             do try {
                 name = queue.take();
+                Stats.queueTime(System.nanoTime() - pending_interest.get(name.toUri()));
+                pending_interest.remove(name.toUri());
                 switch ((name.size() > 1) ? name.get(1).toEscapedString() : "") {
                     case "benchmark":
                         doBenchmark();
@@ -228,71 +159,62 @@ public final class Server implements OnInterestCallback, OnRegisterFailed {
             while (true);
         }
 
-        public final void doBenchmark() throws Exception{
+		//respond to a benchmark request by copying and define a name for the packet model
+        public final void doBenchmark(){
+            final long time = System.nanoTime();
             final Data d1 = new Data(data_model).setName(name).setContent(new Blob(default_data));
             try {
-                if (rsa) keyChain.sign(d1, certificateName);
+                if (algo!='S') keyChain.sign(d1, certificateNameB);
                 else keyChain.signWithSha256(d1);
                 face.putData(d1);
-                Stats.packetPlusOne(max_chunk_size);
+                Stats.packetPlusOne(d1.getContent().size(),System.nanoTime()-time);
             } catch (Exception e) {
                 e.printStackTrace();
             }
         }
 
-        public final void doDownload() {
-            if (name.size() > 2) {
-                if (name.size() > 3) {
-                    //System.out.println("file transfer interest: "+i.toUri());
-                    final String file_name = name.get(2).toEscapedString();
-                    long segment = 0;
+		//respond to a download request, if no specified segment, respond with the number of segment of the specified file, otherwise respond with data at position segment*max_data (start from 0)
+        public final void doDownload(){
+            final long time = System.nanoTime();
+            if (name.size() > 3) {
+                final String file_name = name.get(2).toEscapedString();
+                long segment = 0;
+                try {
+                    segment = name.get(3).toSegment();
+                } catch (EncodingException e) {
+                    e.printStackTrace();
+                }
+				//System.out.println("get request for fragment "+segment+" of file "+file_name);
+                if (pending_files.get(file_name) == null && new File(file_name).exists())
                     try {
-                        segment = name.get(3).toSegment();
-                    } catch (EncodingException e) {
+                        pending_files.put(file_name, new RandomAccessFile(file_name, "r").getChannel());
+                    } catch (FileNotFoundException e) {
                         e.printStackTrace();
                     }
-                    if (pending_files.get(file_name) == null) {
-                        if (new File(file_name).exists())
-                            try {
-                                pending_files.put(file_name, new RandomAccessFile(file_name, "r").getChannel());
-                            } catch (FileNotFoundException e) {
-                                e.printStackTrace();
-                            }
-                        else
-                            return;
-                    }
-                    final ByteBuffer buffer = ByteBuffer.allocateDirect(max_chunk_size);
-                    try {
-                        pending_files.get(file_name).read(buffer, max_chunk_size * segment);
-                    } catch (IOException e) {
-                        e.printStackTrace();
-                    }
+                final ByteBuffer buffer = ByteBuffer.allocateDirect(max_chunk_size);
+                try {
+                    pending_files.get(file_name).read(buffer, max_chunk_size * segment);
                     final Data d2 = new Data(data_model).setName(name);
                     buffer.flip();
                     d2.setContent(new Blob(buffer, true));
-                    //System.out.println(d2.getContent().toString());
-                    try {
-                        //keyChain.signWithSha256(d2);
-                        keyChain.sign(d2, certificateName);
-                        face.putData(d2);
-                        Stats.packetPlusOne(d2.getContent().size());
-                    } catch (Exception e) {
-                        e.printStackTrace();
-                    }
-                } else {
-                    //System.out.print("file size interest: ");
-                    final File f = new File(name.get(2).toEscapedString());
-                    final long fragment = f.exists() ? (f.length() + max_chunk_size - 1) / max_chunk_size : 0;
-                    final Data d2 = new Data(data_model).setName(name).setContent(new Blob("" + fragment));
-                    //System.out.println(fragment);
-                    try {
-                        //keyChain.signWithSha256(d2);
-                        keyChain.sign(d2, certificateName);
-                        face.putData(d2);
-                        Stats.packetPlusOne(d2.getContent().size());
-                    } catch (Exception e) {
-                        e.printStackTrace();
-                    }
+                    keyChain.sign(d2, certificateNameD);
+                    face.putData(d2);
+                    Stats.packetPlusOne(d2.getContent().size(),System.nanoTime()-time);
+                } catch (IOException | net.named_data.jndn.security.SecurityException e) {
+                    e.printStackTrace();
+                }
+                return;
+            } else if (name.size() > 2) {
+				//System.out.println("request for file "+name.get(2).toEscapedString());
+                final File f = new File(name.get(2).toEscapedString());
+                final long fragment = f.exists() ? (f.length() + max_chunk_size - 1) / max_chunk_size : 0;
+                final Data d2 = new Data(data_model).setName(name).setContent(new Blob("" + fragment));
+                try {
+                    keyChain.sign(d2, certificateNameD);
+                    face.putData(d2);
+                    Stats.packetPlusOne(d2.getContent().size(),System.nanoTime()-time);
+                } catch (Exception e) {
+                    e.printStackTrace();
                 }
             }
         }

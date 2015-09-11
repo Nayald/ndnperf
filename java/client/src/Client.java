@@ -15,37 +15,38 @@ public final class Client implements OnData, OnTimeout {
     private final Face face;
     private final HashMap<String, Integer> retry_table;
     private final ConcurrentLinkedDeque<Interest> i_queue;
-    private final Semaphore interest_pass, file_pass;
-    private PendingFile pendingFile;
-    private final Thread filemanager;
     private final HashMap<String,Long> pendingInterests;
+    private PendingFile pendingFile;
+    private final Semaphore file_pass;
+    private long next,max;
 
     public Client(final Face face, int window) {
         this.face = face;
         this.retry_table = new HashMap<>(2*window,0.5f);
-        i_queue = new ConcurrentLinkedDeque<>();
-        interest_pass = new Semaphore(window, false);
-        file_pass = new Semaphore(0, false);
-        filemanager=new FileManager();
-        pendingInterests=new HashMap<>(2*window,0.5f);
+        this.i_queue = new ConcurrentLinkedDeque<>();
+        this.pendingInterests=new HashMap<>(2*window,0.5f);
+        this.file_pass = new Semaphore(0, false);
+        new FileManager().start();
+        this.next=window;
     }
 
+    //add the initial Interest
     public final void addInterest(final Interest i) {
         i_queue.offerLast(i);
     }
 
+    //main loop
     public final void run() {
         Interest interest;
-        while (Main.cont) {
-            while ((interest = i_queue.pollFirst()) != null) {
-                try {
-                    //System.out.println(interest.getName().toUri());
-                    face.expressInterest(interest, this, this);
-                    pendingInterests.put(interest.getName().toUri(),System.nanoTime());
-                } catch (IOException e) {
-                    e.printStackTrace();
-                }
+        while ((interest = i_queue.pollFirst()) != null) {
+            try {
+                face.expressInterest(interest, this, this);
+                pendingInterests.put(interest.getName().toUri(),System.nanoTime());
+            } catch (IOException e) {
+                e.printStackTrace();
             }
+        }
+        while (Main.cont) {
             try {
                 face.processEvents();
                 Thread.sleep(5);
@@ -53,72 +54,60 @@ public final class Client implements OnData, OnTimeout {
                 e.printStackTrace();
             }
         }
-        System.exit(0);
     }
 
     @Override
     public final void onData(final Interest interest, final Data data) {
-        Stats.packetPlusOne(data.getContent().size(),System.nanoTime()-pendingInterests.get(data.getName().toUri()));
         retry_table.remove(data.getName().toUri());
-        switch (data.getName().get(1).toEscapedString()) {
-            case "benchmark":
-                nextBenchmarkInterest(interest);
-                break;
-            case "download":
-                nextDownloadInterest(data);
-                break;
-        }
-    }
-
-    public final void nextBenchmarkInterest(final Interest interest){
+	Stats.packetPlusOne(data.getContent().size(), System.nanoTime() - pendingInterests.get(interest.getName().toUri()));
         try {
-            face.expressInterest(interest, this, this);
-            pendingInterests.put(interest.getName().toUri(),System.nanoTime());
-        } catch (IOException e) {
+            switch (data.getName().get(1).toEscapedString()) {
+                case "benchmark":
+                    nextBenchmarkInterest(interest);
+                    break;
+                case "download":
+                    nextDownloadInterest(data);
+                    break;
+            }
+        }catch (IOException e) {
             e.printStackTrace();
         }
     }
 
-    public final void nextDownloadInterest(final Data data){
-        interest_pass.release();
+    //use for benchmark test, resend the Interest packet
+    public final void nextBenchmarkInterest(final Interest interest) throws IOException{
+            face.expressInterest(interest, this, this);
+            pendingInterests.put(interest.getName().toUri(),System.nanoTime());
+    }
+
+    //use for download test, if no specified segment, ask for the number of segment of the file, otherwise download the specified segment
+    public final void nextDownloadInterest(final Data data) throws IOException{
         if (data.getName().size() > 3) {
             Stats.indexpp();
             try {
                 pendingFile.put(data.getName().get(3).toSegment(), data.getContent());
                 file_pass.release();
+		Name n = new Name(data.getName().getPrefix(3)).appendSegment(next++);
+		if(next<=max)face.expressInterest(new Interest(n, 4000), this, this);
+		pendingInterests.put(n.toUri(),System.nanoTime());
             } catch (EncodingException e) {
                 e.printStackTrace();
             }
         } else if (data.getName().size() > 2) {
-            final long max = Long.parseLong(data.getContent().toString());
-            if (max == 0) {
+            max = Long.parseLong(data.getContent().toString());
+            if (max <= 0) {
                 System.out.println("\n File not found...");
                 Main.cont = false;
                 return;
             }
             Stats.setMax(max);
-            try {
-                pendingFile = new PendingFile(data.getName().get(2).toEscapedString(), max);
-            } catch (IOException e) {
-                e.printStackTrace();
+            pendingFile = new PendingFile(data.getName().get(2).toEscapedString(), max);
+            final long limit = Math.min(next, max);
+            for (int i = 0; i < limit; i++){
+		Name n= new Name(data.getName().getPrefix(3)).appendSegment(i);
+                face.expressInterest(new Interest(n, 4000), this, this);
+		pendingInterests.put(n.toUri(),System.nanoTime());
             }
-            if (!filemanager.isAlive()) {
-                filemanager.setPriority(Thread.MIN_PRIORITY);
-                filemanager.start();
-                new Thread(() -> {
-                    Name n;
-                    for (long i = 0; i < max; i++) {
-                        n = new Name(data.getName().getPrefix(3)).appendSegment(i);
-                        try {
-                            interest_pass.acquire();
-                            i_queue.offerLast(new Interest(n, 4000));
-                        } catch (InterruptedException e) {
-                            e.printStackTrace();
-                        }
-                    }
-                }).start();
-            }
-
         }
     }
 
@@ -127,8 +116,13 @@ public final class Client implements OnData, OnTimeout {
         if (retry_table.get(interest.getName().toUri()) == null) retry_table.put(interest.getName().toUri(), 2);
         System.out.println("Timeout for " + interest.getName().toUri() + ": " + retry_table.get(interest.getName().toUri()) + " retry left.");
         if (retry_table.get(interest.getName().toUri()) > 0) {
-            i_queue.offer(interest);
-            retry_table.put(interest.getName().toUri(), retry_table.get(interest.getName().toUri()) - 1);
+            try {
+                face.expressInterest(interest, this, this);
+                pendingInterests.put(interest.getName().toUri(), System.nanoTime());
+                retry_table.put(interest.getName().toUri(), retry_table.get(interest.getName().toUri()) - 1);
+            } catch (IOException e) {
+                e.printStackTrace();
+            }
         } else {
             System.out.println("Timeout after 3 retries, transfer aborted.");
             Main.cont = false;
@@ -136,6 +130,7 @@ public final class Client implements OnData, OnTimeout {
         }
     }
 
+    //a thread that writes to disk the downloaded file from the NDN segments, the aim is to offload the main thread
     private final class FileManager extends Thread {
         public final void run() {
             while (Main.cont) {
@@ -153,7 +148,7 @@ public final class Client implements OnData, OnTimeout {
                     }
                     if (!pendingFile.isPending()) {
                         pendingFile.close();
-                        System.out.println("\n Download completed !!!");
+                        System.out.println("\nDownload completed !!!");
                         Main.cont = false;
                     }
                 } catch (InterruptedException e) {

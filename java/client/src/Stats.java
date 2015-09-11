@@ -8,6 +8,7 @@ import java.util.concurrent.atomic.LongAdder;
 public final class Stats extends Thread{
     private static final LongAdder packet=new LongAdder(), bytes=new LongAdder(), rtt=new LongAdder();
     private static long index,max=1;
+    private int maxlen=0;
 
     public static final void packetPlusOne(final int b, final long r){
         packet.add(1);
@@ -51,11 +52,10 @@ public final class Stats extends Thread{
                         for (long count = dotCount; count < 50; count++) {
                             sb.append(" ");
                         }
-                        sb.append("] "+ (bytes.sumThenReset() >> 10) + " KB/s");
-                        for (int count = 0; count < sb.length(); count++) {
-                            System.out.print("\r");
-                        }
-                        System.out.print(sb.toString());
+                        sb.append("] "+ (bytes.sumThenReset() >> 10) + " KB/s, latency = "+rtt.sumThenReset()/(1e6f*packet.sumThenReset())+" ms");
+			if(maxlen>=sb.length())while(sb.length()<maxlen)sb.append(" ");
+			else maxlen=sb.length();
+                        System.out.print(sb.toString()+'\r');
                     try {
                         Thread.sleep(1000);
                     } catch (InterruptedException e) {
