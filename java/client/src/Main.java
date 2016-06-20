@@ -1,45 +1,45 @@
 import net.named_data.jndn.Face;
 import net.named_data.jndn.Interest;
 import net.named_data.jndn.Name;
-
+import net.named_data.jndn.transport.UdpTransport;
 /**
  * Created by xmarchal on 16/06/15.
  */
 public class Main {
     public static boolean cont=true;
     public static void main(String [] args){
-        Face face=new Face();
-		String prefix="";
-		Client c;
-		int mode=1;
+	Face face = new Face(new UdpTransport(), new UdpTransport.ConnectionInfo("127.0.0.1",3000));
+	String prefix="/debit";
+	Client c;
+	int mode=1;
     	int window=32;
-		String file_name="";
-		for(int i=0;i<args.length;i++){
+	String file_name="";
+	for(int i=0;i<args.length;i++){
             switch(args[i]){
                 case "-p":
-		    		prefix=args[++i];
-		    		break;
+	    		prefix=args[++i];
+	    		break;
                 case "-d":
-                    mode=2;
-					file_name=args[++i];
-                    break;
+                    	mode=2;
+			file_name=args[++i];
+                    	break;
                 case "-w":
                     try {
                         window = Integer.parseInt(args[++i]);
                     }catch (NumberFormatException ignored){
-						break;
-					}
+			break;
+   		    }
                     break;
             	case "-h":
                 default:
                     System.out.println("usage: java Main [options...]" +
                             "\noptions:" +
-							"\n\n\t-p prefix\t\tspecify the prefix of the server\n\t\t\t\t(default=/debit)" +
+		            "\n\n\t-p prefix\t\tspecify the prefix of the server\n\t\t\t\t(default=/debit)" +
                             "\n\t-w window_size\t\tspecify the number of Interest sent simultaneously\n\t\t\t\t(default=32)" +
                             "\n\n\t-d file_name\t\tdonwload the specified file from the server" +
                             "\n\n\t-h\t\t\tdisplay this help message");
                     System.exit(-1);
-				}
+		}
             }
             switch (mode) {
                 case 1:
@@ -60,5 +60,5 @@ public class Main {
                     c.run();
                     break;
         }
-	}
+    }
 }
