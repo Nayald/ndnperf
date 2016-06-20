@@ -49,8 +49,8 @@ public final class Client implements OnData, OnTimeout {
         while (Main.cont) {
             try {
                 face.processEvents();
-                Thread.sleep(5);
-            } catch (IOException | EncodingException | InterruptedException e) {
+                Thread.sleep(2);
+            } catch (Exception e) {
                 e.printStackTrace();
             }
         }
@@ -58,7 +58,8 @@ public final class Client implements OnData, OnTimeout {
 
     @Override
     public final void onData(final Interest interest, final Data data) {
-        retry_table.remove(data.getName().toUri());
+        //System.out.println(data.getName().toUri());
+	retry_table.remove(data.getName().toUri());
 	Stats.packetPlusOne(data.getContent().size(), System.nanoTime() - pendingInterests.get(interest.getName().toUri()));
         try {
             switch (data.getName().get(1).toEscapedString()) {
@@ -76,8 +77,9 @@ public final class Client implements OnData, OnTimeout {
 
     //use for benchmark test, resend the Interest packet
     public final void nextBenchmarkInterest(final Interest interest) throws IOException{
-            face.expressInterest(interest, this, this);
-            pendingInterests.put(interest.getName().toUri(),System.nanoTime());
+            Interest i = new Interest(new Name(prefix+"/benchmark/"+(next++)),4000);
+	    face.expressInterest(i, this, this);
+            pendingInterests.put(i.getName().toUri(),System.nanoTime());
     }
 
     //use for download test, if no specified segment, ask for the number of segment of the file, otherwise download the specified segment
@@ -113,7 +115,8 @@ public final class Client implements OnData, OnTimeout {
 
     @Override
     public final void onTimeout(final Interest interest) {
-        if (retry_table.get(interest.getName().toUri()) == null) retry_table.put(interest.getName().toUri(), 2);
+        //System.exit(0);
+	if (retry_table.get(interest.getName().toUri()) == null) retry_table.put(interest.getName().toUri(), 2);
         System.out.println("Timeout for " + interest.getName().toUri() + ": " + retry_table.get(interest.getName().toUri()) + " retry left.");
         if (retry_table.get(interest.getName().toUri()) > 0) {
             try {
