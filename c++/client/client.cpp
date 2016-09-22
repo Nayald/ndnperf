@@ -81,7 +81,7 @@ public:
         int max = _current_pkt + _window;
         for (_current_pkt; _current_pkt < max; ++_current_pkt) {
             Name name = Name(_prefix);
-            if (_download)name.append("_download").append(_file_path);
+            if (_download)name.append("download").append(_file_path);
             else name.append("benchmark");
             name.append(std::to_string(_current_pkt));
             Interest interest = Interest(name, time::milliseconds(4000));
@@ -167,9 +167,11 @@ public:
         }
         if (_current_segment > _max_segment) {
             _file.close();
+            std::cout << "download completed!" << std::endl;
+            exit(0);
         }
         if (_current_pkt <= _max_segment) {
-            Interest i = Interest(Name(_prefix).append("_download").append(_file_path).append(std::to_string(_current_pkt)),
+            Interest i = Interest(Name(_prefix).append("download").append(_file_path).append(std::to_string(_current_pkt)),
                                   time::milliseconds(4000)).setMustBeFresh(true);
             _face.expressInterest(i, bind(&Client::on_file, this, _current_pkt, _2),
                                  bind(&Client::on_timeout_file, this, _current_pkt, _1, 5));
@@ -237,11 +239,12 @@ int main(int argc, char *argv[]) {
             default:
             case 'h':
                 std::cout << "usage: ./ndnperf [options...]\n"
-                          << "\t-p _prefix\tthe _prefix of the ndnperfserver (default = /throughput)\n"
-                          << "\t-w _window\tthe packet _window size (default = 32)\n"
+                          << "\t-p prefix\tthe prefix of the ndnperfserver (default = /throughput)\n"
+                          << "\t-w window\tthe packet window size (default = 32)\n"
                           << "\t-s startfrom\tthe starting value for the final nameComponent (default = 0)\n"
-                          << "\t-d filename\tthe _file to retrive, use _download mode (default is benchmark mode)\n"
+                          << "\t-d filename\tthe file to retrive, use download mode (default is benchmark mode)\n"
                           << "\t-h\t\tdisplay the help message\n" << std::endl;
+                exit(1);
                 break;
         }
     }
