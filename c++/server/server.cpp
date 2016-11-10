@@ -111,7 +111,7 @@ private:
             CryptoPP::AutoSeededRandomPool rng;
             OBufferStream os;
             switch (_pubkey->getKeyType()) {
-                case KEY_TYPE_RSA:
+                case KeyType::RSA:
                     //seems to not be necessary
                     //CryptoPP::RSASS<CryptoPP::PKCS1v15, CryptoPP::SHA256>::Signer rsaSignerCopy = rsaSigner;
 
@@ -119,7 +119,7 @@ private:
                                            new CryptoPP::SignerFilter(rng, _rsaSigner, new CryptoPP::FileSink(os)));
                     data.wireEncode(enc, Block(tlv::SignatureValue, os.buf()));
                     break;
-                case KEY_TYPE_ECDSA:
+                case KeyType::EC:
                     // if not present -> segfault with concurrency
                     CryptoPP::ECDSA<CryptoPP::ECP, CryptoPP::SHA256>::Signer ecdsaSignerCopy = _ecdsaSigner;
 
