@@ -1,4 +1,7 @@
 #ndnperf
+
+**Note: if you don't need the custom signing function, I recommand you to download the archive at http://madynes.loria.fr/Research/Software in order to avoid possible compatibility issues.**
+
 We designed NDNperf, an open source tool for NDN server-side performance evaluation and sizing purposes, in order to have an idea of the throughput a server can achieve when it has to generate and transmit NDN Data packets. It is very similar to iPerf and also needs a client and a server to perform the measurements while minimizing the number of instructions between Interest reception and Data emission. It exists in two flavors (<a href="https://github.com/Kanemochi/ndnperf/tree/master/java">Java</a> and <a href="https://github.com/Kanemochi/ndnperf/tree/master/c++">C++</a>) and has the following features: 
 
 * Periodic report of performances: end-to-end throughput, latency, processing time;
