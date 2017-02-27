@@ -105,7 +105,7 @@ private:
         data.setSignature(_sig);
         EncodingBuffer enc;
         data.wireEncode(enc, true);
-        if (_keyName == KeyChain::DIGEST_SHA256_IDENTITY)
+        if (_keyName == security::SigningInfo::getDigestSha256Identity())
             data.wireEncode(enc, Block(tlv::SignatureValue, crypto::sha256(enc.buf(), enc.size())));
         else {
             CryptoPP::AutoSeededRandomPool rng;
@@ -198,7 +198,7 @@ public:
                 }
                 case 3: {
                     std::cout << "Generating " << _key_size << "bits ECDSA key pair" << std::endl;
-                    _keyName = _keyChain.generateEcdsaKeyPairAsDefault(_identity, false, _key_size);
+                    _keyName = _keyChain.generateEcKeyPairAsDefault(_identity, false, _key_size);
                     CryptoPP::StringSource src(_keyName.toUri(), true, new CryptoPP::HashFilter(hash,
                                                                                                 new CryptoPP::Base64Encoder(
                                                                                                         new CryptoPP::StringSink(
@@ -236,7 +236,7 @@ public:
                       << "+ Using certificate: " << defaultCertName << std::endl;
         } else {
             std::cout << "Using SHA-256 signature" << std::endl;
-            _keyName = KeyChain::DIGEST_SHA256_IDENTITY;
+            _keyName = security::SigningInfo::getDigestSha256Identity();
             SignatureInfo sigInfo = KeyChain::DEFAULT_SIGNING_INFO.getSignatureInfo();
             sigInfo.setSignatureType(tlv::DigestSha256);
             _sig = Signature(sigInfo);
