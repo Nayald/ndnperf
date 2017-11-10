@@ -69,6 +69,7 @@ private:
     //std::string remote_port;
     Face _face;
     KeyChain _keyChain;
+    security::Identity _old_identity;
     security::Identity _identity;
     const tlv::SignatureTypeValue _key_type;
     size_t _key_size;
@@ -88,15 +89,18 @@ public:
     Server(size_t concurrency, const char *prefix, tlv::SignatureTypeValue key_type, size_t key_size,
            size_t payload_size, size_t freshness)
         : _prefix(prefix)
-        , _face("127.0.0.1", "6363")
+        , _face()
         , _key_type(key_type)
         , _key_size(key_size)
         , _concurrency(concurrency)
         , _freshness(freshness)
         , _payload_size(payload_size) {
         if (_key_type != tlv::DigestSha256) {
+            _old_identity = _keyChain.getPib().getDefaultIdentity();
             _identity = _keyChain.createIdentity(prefix);
             _keyChain.setDefaultIdentity(_identity);
+
+            std::cout << "Using identity " << _identity.getName() << " instead of " << _old_identity << std::endl;
 
             switch (_key_type) {
                 default:
@@ -120,8 +124,7 @@ public:
 
             _keyChain.setDefaultKey(_identity, _key);
 
-            std::cout << "Using identity: " << _identity.getName() << "\n"
-                      << "Using key: " << _key.getName() << "\n"
+            std::cout << "Using key " << _key.getName() << "\n"
                       << _key.getDefaultCertificate() << std::endl;
         } else {
             std::cout << "Using SHA-256 signature" << std::endl;
@@ -129,7 +132,7 @@ public:
 
         _log_vars = new int[concurrency * 4](); // [concurrency][0: payload sum, 1: packet count, 2:qtime, 3: ptime]
 
-        // build once for all the data carried by the packets
+        // build once for all the data carried by the packets (packets generated from files ignore this)
         char chararray[payload_size];
         gen_random(chararray, payload_size);
         shared_ptr<Buffer> buf = make_shared<Buffer>(&chararray[0], payload_size);
@@ -138,9 +141,7 @@ public:
         std::cout << "Freshness = " << freshness << " ms" << std::endl;
     }
 
-    ~Server() {
-
-    }
+    ~Server() = default;
 
     void start() {
         _face.setInterestFilter(_prefix, bind(&Server::on_interest, this, _2), bind(&Server::on_register_failed, this));
@@ -148,15 +149,14 @@ public:
         for (int i = 0; i < _concurrency; ++i) {
             _thread_pool.create_thread(boost::bind(&Server::process, this, &_log_vars[i * 4]));
         }
-        std::cout << "Start server with " << _concurrency << " threads" << std::endl;
+        std::cout << "Start server with " << _concurrency << " signing threads" << std::endl;
         _thread_pool.create_thread(boost::bind(&Server::display, this));
-
-        _face.processEvents();
+        _thread_pool.create_thread(boost::bind(&Face::processEvents, &_face, time::milliseconds::zero(), false));
     }
 
     void stop() {
         // stop the threads
-        std::cout << "wait" << std::endl;
+        std::cout << "Waiting for other threads... " << std::endl;
         _stop = true;
         Name name(_prefix);
         name.append("dummy");
@@ -168,12 +168,12 @@ public:
 
         // clean up
         if (_key_type > 0) {
-            std::cout << "Deleting generated key certificate... " << std::endl;
-            _keyChain.deleteCertificate(_key, _key.getDefaultCertificate().getName());
             std::cout << "Deleting generated key... " << std::endl;
             _keyChain.deleteKey(_identity, _key);
-            std::cout << "Deleting generated identity... " << std::flush;
+            std::cout << "Deleting generated identity... " << std::endl;
             _keyChain.deleteIdentity(_identity);
+            std::cout << "Setting previous identity as default... " << std::endl;
+            _keyChain.setDefaultIdentity(_old_identity);
         }
     }
 
@@ -188,7 +188,7 @@ public:
             auto start = std::chrono::steady_clock::now();
             i[2] += std::chrono::duration_cast<std::chrono::microseconds>(start - pair.second).count();
 
-            auto data = make_shared<Data>(pair.first);
+            auto data = make_shared<Data>(name);
             data->setFreshnessPeriod(_freshness);
 
             if (name.get(_prefix.size()).toUri() == "download") {
@@ -257,6 +257,7 @@ public:
     }
 
     void on_register_failed(){
+        std::cerr << "Failed to register prefix " << _prefix << std::endl;
         std::exit(-1);
     }
 };
