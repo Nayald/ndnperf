@@ -168,12 +168,12 @@ public:
 
         // clean up
         if (_key_type > 0) {
+            std::cout << "Setting previous identity as default... " << std::endl;
+            _keyChain.setDefaultIdentity(_old_identity);
             std::cout << "Deleting generated key... " << std::endl;
             _keyChain.deleteKey(_identity, _key);
             std::cout << "Deleting generated identity... " << std::endl;
             _keyChain.deleteIdentity(_identity);
-            std::cout << "Setting previous identity as default... " << std::endl;
-            _keyChain.setDefaultIdentity(_old_identity);
         }
     }
 
@@ -196,10 +196,10 @@ public:
                           std::ifstream::in | std::ifstream::binary | std::ifstream::ate);
                 if (file.is_open()) {
                     int max_seg_num = ((int) file.tellg() - 1) / _payload_size;
-                    file.seekg(stoi(name.get(-1).toUri()) * _payload_size, std::ios_base::beg);
+                    file.seekg(name.get(-1).toSegment() * _payload_size, std::ios_base::beg);
                     auto size = file.read(buffer, _payload_size).gcount();
                     data->setContent(reinterpret_cast<uint8_t *>(buffer), size);
-                    data->setFinalBlockId(Name::Component(std::to_string(max_seg_num)));
+                    data->setFinalBlockId(ndn::Name::Component::fromSegment(max_seg_num));
                     i[0] += size;
                 }
                 file.close();

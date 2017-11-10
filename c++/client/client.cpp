@@ -39,33 +39,35 @@ class Client {
 private:
     Face _face;
     Name _prefix;
-    const int _window;
-    int _current_pkt;
-    bool _first;
-    std::atomic<int> _count, _sum_size, _sum_rtt;
+    
+    size_t _window;
+    bool _first = true;
+    std::atomic<int> _count{0};
+    std::atomic<int> _sum_size{0};
+    std::atomic<int> _sum_rtt{0};
     std::thread *_thread;
 
     bool _download;
-    int _max_segment, _current_segment;
+    size_t _current_packet = 0;
+    size_t _current_segment = 0;
+    size_t _max_segment = 0;
     std::map<int, Data> _pending_segments;
     std::ofstream _file;
     std::string _file_path;
 
 public:
-    Client(const char *prefix, int s, int n, bool download, const char *file_path)
-            : _face("127.0.0.1", "6363")
+    Client(const char *prefix, int window, bool download, const char *file_path)
+            : _face()
             , _prefix(prefix)
-            , _current_pkt(s)
-            , _window(n)
-            , _first(true)
-            , _count(0)
-            , _sum_size(0)
-            , _sum_rtt(0)
+            , _window(window)
             , _download(download)
-            , _file_path(file_path)
-    {}
+            , _file_path(file_path) {
+            
+    }
 
-    ~Client() {}
+    ~Client() {
+    
+    }
 
     void run() {
         std::cout << "Client start with window = " << _window << std::endl;
@@ -77,8 +79,7 @@ public:
         } else {
             _thread = new std::thread(&Client::display, this);
         }
-        int max = _current_pkt + _window;
-        for (_current_pkt; _current_pkt < max; ++_current_pkt) {
+        for (_current_packet; _current_packet < _window; ++_current_packet) {
             Name name = Name(_prefix);
             if (_download) {
                 name.append("download").append(_file_path);
@@ -86,13 +87,12 @@ public:
             else {
                 name.append("benchmark");
             }
-            name.append(std::to_string(_current_pkt));
-            Interest interest = Interest(name, time::milliseconds(4000));
+            Interest interest = Interest(name.appendSegment(_current_packet), time::milliseconds(4000));
             interest.setMustBeFresh(true);
             if (_download) {
-                _face.expressInterest(interest, bind(&Client::on_file, this, _current_pkt, _2),
+                _face.expressInterest(interest, bind(&Client::on_file, this, _current_packet, _2),
                                       bind(&Client::on_nack, this, _1, _2),
-                                      bind(&Client::on_timeout_file, this, _current_pkt, _1, 5));
+                                      bind(&Client::on_timeout_file, this, _current_packet, _1, 5));
             } else {
                 std::chrono::steady_clock::time_point start = std::chrono::steady_clock::now();
                 _face.expressInterest(interest, bind(&Client::on_data, this, _1, _2, start),
@@ -126,11 +126,11 @@ public:
         char mbstr[28];
         int sum = 0;
         while (true) {
-            std::this_thread::sleep_for(std::chrono::seconds(2));
+            std::this_thread::sleep_for(std::chrono::milliseconds(500));
             time = std::time(NULL);
             std::strftime(mbstr, sizeof(mbstr), "%c - ", std::localtime(&time));
             std::cout << mbstr << _current_segment - 1 << "/" << _max_segment << " completed - "
-                      << (_sum_size.exchange(0) >> 8) << " Kbps" << std::endl;
+                      << (_sum_size.exchange(0) >> 6) << " Kbps" << std::endl;
         }
     }
 
@@ -142,7 +142,7 @@ public:
             std::cout << "Server packet size = " << data.getContent().value_size() << std::endl;
             _first = false;
         }
-        Interest i = Interest(Name(_prefix).append("benchmark").append(std::to_string(_current_pkt++)),
+        Interest i = Interest(Name(_prefix).append("benchmark").append(std::to_string(_current_packet++)),
                               time::milliseconds(4000)).setMustBeFresh(true);
         start = std::chrono::steady_clock::now();
         _face.expressInterest(i, bind(&Client::on_data, this, _1, _2, start),
@@ -152,9 +152,8 @@ public:
         _sum_size.fetch_add(data.getContent().value_size());
     }
 
-    void on_file(int segment, const Data &data) {
-        //std::cout << data << std::endl;
-        _max_segment = stoi(data.getFinalBlockId().toUri());
+    void on_file(size_t segment, const Data &data) {
+        _max_segment = data.getFinalBlockId().toSegment();
         _sum_size.fetch_add(data.getContent().value_size());
         _pending_segments[segment] = data;
         while (_pending_segments.find(_current_segment) != _pending_segments.end()) {
@@ -168,13 +167,13 @@ public:
             std::cout << "download completed!" << std::endl;
             exit(0);
         }
-        if (_current_pkt <= _max_segment) {
-            Interest i = Interest(Name(_prefix).append("download").append(_file_path).append(std::to_string(_current_pkt)),
+        if (_current_packet <= _max_segment) {
+            Interest i = Interest(data.getName().getPrefix(-1).appendSegment(_current_packet),
                                   time::milliseconds(4000)).setMustBeFresh(true);
-            _face.expressInterest(i, bind(&Client::on_file, this, _current_pkt, _2),
+            _face.expressInterest(i, bind(&Client::on_file, this, _current_packet, _2),
                                   bind(&Client::on_nack, this, _1, _2),
-                                  bind(&Client::on_timeout_file, this, _current_pkt, _1, 5));
-            ++_current_pkt;
+                                  bind(&Client::on_timeout_file, this, _current_packet, _1, 5));
+            ++_current_packet;
         }
     }
 
@@ -238,13 +237,12 @@ int main(int argc, char *argv[]) {
                 std::cout << "usage: "<< argv[0] << " [options...]\n"
                           << "\t-p prefix\tthe prefix of the ndnperfserver (default = /throughput)\n"
                           << "\t-w window\tthe packet window size (default = 32)\n"
-                          << "\t-s startfrom\tthe starting value for the final nameComponent (default = 0)\n"
                           << "\t-d filename\tthe file to retrive, use download mode (default is benchmark mode)\n"
                           << "\t-h\t\tdisplay the help message\n" << std::endl;
                 return 1;
         }
     }
-    Client client(prefix, start, window, download, file_path);
+    Client client(prefix, window, download, file_path);
     client.run();
     return 0;
 }

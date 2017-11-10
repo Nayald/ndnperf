@@ -12,9 +12,8 @@ set(SOURCE_FILES
 find_package(Boost COMPONENTS system filesystem thread REQUIRED)
 
 find_library(ndn-cxx REQUIRED)
-find_library(cryptopp REQUIRED)
 find_library(pthread REQUIRED)
 
 add_executable(ndnperfserver ${SOURCE_FILES})
 
-target_link_libraries(ndnperfserver ndn-cxx ${Boost_LIBRARIES} cryptopp pthread)
+target_link_libraries(ndnperfserver ndn-cxx ${Boost_LIBRARIES} pthread)

@@ -1,26 +1,24 @@
-#Compile the program with:
+# Compile the program with:
 
 * cmake . && make
 
 or
 
-* g++ -o ndnperfserver server.cpp -std=c++11 -O2 -lndn-cxx -lcryptopp -lboost_system -lboost_filesystem -lboost_thread -lpthread
+* g++ -o ndnperfserver server.cpp -std=c++11 -O2 -lndn-cxx -lboost_system -lboost_filesystem -lboost_thread -lpthread
 
-#How to use the program:
+# How to use the program:
 
 ./ndnperfserver [options...]
 
-####options:
-* -p prefix		the prefix name to register (default = /throughput)
-* -s sign_type		the type of the signature to generate 0=SHA,1=RSA,3=ECDSA (default = 1)
-* -k key_size		actually limited by the lib, RSA={1024,2048} and ECDSA={256,384}
-* -t thread_count		(default = CPU logical core number)
-* -c chunk_size		(default = 8192)
-* -f freshness		in milliseconds (default = 0)
-* -x 			override the ndn sign function with ndnperf sign function
-* -h 			display the help message
+## options:
+* -k key_type&nbsp;&nbsp;&nbsp;&nbsp;key_type={sha, rsa, ecdsa} (default = sha)
+* -s key_size&nbsp;&nbsp;&nbsp;&nbsp;size of the key, rsa >= 1024, ecdsa={256, 384}
+* -t thread_count&nbsp;&nbsp;&nbsp;&nbsp;number of CPU used to handle Interests (default = logical core count)
+* -c payload_size&nbsp;&nbsp;&nbsp;&nbsp;size of the data carried by the packet (default = 8192)
+* -f freshness&nbsp;&nbsp;&nbsp;&nbsp;freshness of the Data in milliseconds (default = 0)
+* -h&nbsp;&nbsp;&nbsp;&nbsp;display this help message
 	
-Some information about the program:
+### Some information about the program:
 	
 1. The server will answer any Interest that have the good prefix with a random data
-2. If the prefix is follow by the nameComponent "download" then the server will try to find the file that correspond to the NameComponent given after "download"
+2. If the prefix is follow by the nameComponent "download" then the server will try to find the file that correspond to the NameComponent given after "download" (relative path)

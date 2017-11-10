@@ -1,4 +1,4 @@
-#Compile the program with:
+# Compile the program with:
 
 * cmake . && make
 
@@ -6,13 +6,12 @@ or
 
 * g++ -o ndnperf client.cpp -std=c++11 -O2 -lndn-cxx -lboost_system -lpthread
 
-#How to use the program:
+# How to use the program:
 
 ./ndnperf [options...]
 
-####options:
-* -p prefix		the prefix name to register (default = /throughput)
-* -w window		the packet window size (default = 32)
-* -s startfrom		the starting value for the final nameComponent (default = 0)
-* -d filename		the file to retrive, use download mode (default is benchmark mode)
-* -h			display the help message
+## options:
+* -p prefix&nbsp;&nbsp;&nbsp;&nbsp;the prefix name to register (default = /throughput)
+* -w window&nbsp;&nbsp;&nbsp;&nbsp;the packet window size (default = 32)
+* -d filename&nbsp;&nbsp;&nbsp;&nbsp;the file to retrive, use download mode (default is benchmark mode)
+* -h&nbsp;&nbsp;&nbsp;&nbsp;display the help message
