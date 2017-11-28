@@ -68,8 +68,7 @@ private:
     //std::string remote_ip;
     //std::string remote_port;
     Face _face;
-    KeyChain _keyChain;
-    security::Identity _old_identity;
+    KeyChain _keychain;
     security::Identity _identity;
     const tlv::SignatureTypeValue _key_type;
     size_t _key_size;
@@ -96,11 +95,8 @@ public:
         , _freshness(freshness)
         , _payload_size(payload_size) {
         if (_key_type != tlv::DigestSha256) {
-            _old_identity = _keyChain.getPib().getDefaultIdentity();
-            _identity = _keyChain.createIdentity(prefix);
-            _keyChain.setDefaultIdentity(_identity);
-
-            std::cout << "Using identity " << _identity.getName() << " instead of " << _old_identity << std::endl;
+            auto it = _keychain.getPib().getIdentities().find(_prefix);
+            _identity = it != _keychain.getPib().getIdentities().end() ? *it : _keychain.createIdentity(prefix);
 
             switch (_key_type) {
                 default:
@@ -109,7 +105,7 @@ public:
                         _key_size = global::DEFAULT_RSA_KEY_SIZE;
                     }
                     std::cout << "Generating new " << _key_size << " bits RSA key pair" << std::endl;
-                    _key = _keyChain.createKey(_identity, RsaKeyParams(_key_size));
+                    _key = _keychain.createKey(_identity, RsaKeyParams(_key_size));
                     break;
                 }
                 case tlv::SignatureSha256WithEcdsa: {
@@ -117,12 +113,10 @@ public:
                         _key_size = global::DEFAULT_EC_KEY_SIZE;
                     }
                     std::cout << "Generating new " << _key_size << " bits ECDSA key pair" << std::endl;
-                    _key = _keyChain.createKey(_identity, EcKeyParams(_key_size));
+                    _key = _keychain.createKey(_identity, EcKeyParams(_key_size));
                     break;
                 }
             }
-
-            _keyChain.setDefaultKey(_identity, _key);
 
             std::cout << "Using key " << _key.getName() << "\n"
                       << _key.getDefaultCertificate() << std::endl;
@@ -168,16 +162,14 @@ public:
 
         // clean up
         if (_key_type > 0) {
-            std::cout << "Setting previous identity as default... " << std::endl;
-            _keyChain.setDefaultIdentity(_old_identity);
             std::cout << "Deleting generated key... " << std::endl;
-            _keyChain.deleteKey(_identity, _key);
-            std::cout << "Deleting generated identity... " << std::endl;
-            _keyChain.deleteIdentity(_identity);
+            _keychain.deleteKey(_identity, _key);
         }
     }
 
     void process(int *const i) {
+        // thread must own its own keychain since RSA or ECDSA will segfault with 2+ threads
+        KeyChain keychain;
         std::pair<Name, std::chrono::steady_clock::time_point> pair;
         std::ifstream file;
         char buffer[_payload_size];
@@ -195,10 +187,10 @@ public:
                 file.open(name.getSubName(_prefix.size() + 1).getPrefix(-1).toUri().erase(0,1),
                           std::ifstream::in | std::ifstream::binary | std::ifstream::ate);
                 if (file.is_open()) {
-                    int max_seg_num = ((int) file.tellg() - 1) / _payload_size;
+                    long max_seg_num = ((long)file.tellg() - 1) / _payload_size;
                     file.seekg(name.get(-1).toSegment() * _payload_size, std::ios_base::beg);
-                    auto size = file.read(buffer, _payload_size).gcount();
-                    data->setContent(reinterpret_cast<uint8_t *>(buffer), size);
+                    long size = file.read(buffer, _payload_size).gcount();
+                    data->setContent((uint8_t*)buffer, size);
                     data->setFinalBlockId(ndn::Name::Component::fromSegment(max_seg_num));
                     i[0] += size;
                 }
@@ -209,10 +201,10 @@ public:
             }
 
             if (_key_type != tlv::DigestSha256) {
-                _keyChain.sign(*data);
+                keychain.sign(*data, security::SigningInfo(_key));
             } else {
                 // sign with DigestSha256
-                _keyChain.sign(*data, security::SigningInfo(security::SigningInfo::SIGNER_TYPE_SHA256));
+                keychain.sign(*data, security::SigningInfo(security::SigningInfo::SIGNER_TYPE_SHA256));
             }
             _face.put(*data);
 
