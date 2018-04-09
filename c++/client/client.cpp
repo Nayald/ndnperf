@@ -186,7 +186,7 @@ public:
         if (n > 0) {
             Interest i(interest);
             i.refreshNonce();
-            _face.expressInterest(interest, bind(&Client::on_data, this, _1, _2, start),
+            _face.expressInterest(i, bind(&Client::on_data, this, _1, _2, start),
                                   bind(&Client::on_nack, this, _1, _2),
                                   bind(&Client::on_timeout, this, _1, n - 1, start));
         } else {
@@ -199,7 +199,7 @@ public:
         if (n > 0) {
             Interest i(interest);
             i.refreshNonce();
-            _face.expressInterest(interest, bind(&Client::on_file, this, segment, _2),
+            _face.expressInterest(i, bind(&Client::on_file, this, segment, _2),
                                   bind(&Client::on_nack, this, _1, _2),
                                   bind(&Client::on_timeout_file, this, segment, _1, n - 1));
         } else {
