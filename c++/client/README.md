@@ -4,7 +4,7 @@
 
 or
 
-* g++ -o ndnperf client.cpp -std=c++11 -O2 -lndn-cxx -lboost_system -lpthread
+* g++ -o ndnperf client.cpp -std=c++11 -O2 -lndn-cxx -lboost_system -lboost_thread -lboost_program_options -lpthread
 
 # How to use the program:
 
