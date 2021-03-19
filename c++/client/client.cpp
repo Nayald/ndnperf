@@ -1,4 +1,5 @@
 #include "client.h"
+#include <iostream>
 
 Client::Client(const std::string &prefix, size_t window, const std::string &file_path)
         : Module(1)
@@ -46,8 +47,25 @@ void Client::waitNextDisplay() {
 }
 
 void Client::onNack(const ndn::Interest &interest, const ndn::lp::Nack &nack) {
-    std::cout << "Nack receive : " << nack.getReason() << std::endl;
-    exit(-1);
+    std::cout << "Nack received: " << nack.getReason() << std::endl;
+    if(_exit_on_nack) {
+        exit(-1);
+    }
+    // todo: avoid burst when resending interests after nack
+    std::cout << "Resending interest with name " << interest.getName() << std::endl;
+    ndn::Interest i(interest);
+    i.refreshNonce();
+    if (download) {
+        const uint64_t current_packet = interest.getName().get(-1).toSegment();
+        _face.expressInterest(i, boost::bind(&Client::onDataFile, this, current_packet, _2),
+                              boost::bind(&Client::onNack, this, _1, _2),
+                              boost::bind(&Client::onTimeoutFile, this, current_packet, _1, 5));
+    } else {
+        std::chrono::steady_clock::time_point start = std::chrono::steady_clock::now();
+        _face.expressInterest(i, boost::bind(&Client::onData, this, _1, _2, start),
+                              boost::bind(&Client::onNack, this, _1, _2),
+                              boost::bind(&Client::onTimeout, this, _1, 5, start));
+    }     
 }
 
 // benchmark -----------------------------------------------------------------------------------------------------------
@@ -55,7 +73,8 @@ void Client::onNack(const ndn::Interest &interest, const ndn::lp::Nack &nack) {
 void Client::onData(const ndn::Interest &interest, const ndn::Data &data, std::chrono::steady_clock::time_point start) {
     _rtt += std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now() - start).count();
     if (_first) {
-        std::cout << "Server signature type = " << data.getSignature().getType() << std::endl;
+        //std::cout << "Server signature type = " << data.getSignature().getType() << std::endl;
+        std::cout << "Server signature type = " << data.getSignatureType() << std::endl;
         std::cout << "Server packet size = " << data.getContent().value_size() << std::endl;
         _first = false;
     }
@@ -98,7 +117,8 @@ void Client::display() {
 
 void Client::onDataFile(size_t segment, const ndn::Data &data) {
     //std::cout << data << std::endl;
-    _max_segment = data.getFinalBlockId().toSegment();
+    //_max_segment = data.getFinalBlockId().toSegment();
+    _max_segment = data.getFinalBlock()->toSegment();
     _payload_size += data.getContent().value_size();
     _pending_segments[segment] = data;
     while (_pending_segments.find(_current_segment) != _pending_segments.end()) {
@@ -144,4 +164,8 @@ void Client::displayFile() {
               << (_payload_size >>= 6) << " Kbps" << std::endl;
     _payload_size = 0;
     waitNextDisplay();
+}
+
+void Client::setExitOnNack(bool state) {
+    _exit_on_nack = state;
 }

@@ -191,7 +191,7 @@ public:
                     file.seekg(name.get(-1).toSegment() * _payload_size, std::ios_base::beg);
                     long size = file.read(buffer, _payload_size).gcount();
                     data->setContent((uint8_t*)buffer, size);
-                    data->setFinalBlockId(ndn::Name::Component::fromSegment(max_seg_num));
+                    data->setFinalBlock(ndn::Name::Component::fromSegment(max_seg_num));
                     i[0] += size;
                 }
                 file.close();

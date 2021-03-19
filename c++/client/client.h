@@ -19,6 +19,7 @@ class Client : public Module {
 private:
     ndn::Name _prefix;
     ndn::Face _face;
+    bool _exit_on_nack = false;
 
     size_t _window;
     bool _first = true;
@@ -57,4 +58,6 @@ public:
     void onTimeoutFile(int segment, const ndn::Interest &interest, int n);
 
     void displayFile();
+
+    void setExitOnNack(bool state);
 };

@@ -42,6 +42,7 @@ int main(int argc, char *argv[]) {
             (",p", po::value<std::string>(&prefix)->default_value("/throughput"), "the prefix of the ndnperfserver")
             (",w", po::value<size_t>(&window)->default_value(DEFAULT_WINDOW), "the packet window size")
             (",d", po::value<std::string>(&file_path)->default_value(""), "the file to retrieve (unspecified = benchmark)")
+            ("eon", po::bool_switch()->default_value(false), "exit on received nack")
             ("help,h", "display the help message");
 
     po::variables_map vm;
@@ -63,6 +64,7 @@ int main(int argc, char *argv[]) {
     }
 
     Client client(prefix, window, file_path);
+    client.setExitOnNack(vm["eon"].as<bool>());
 
     signal(SIGINT, signal_handler);
 
