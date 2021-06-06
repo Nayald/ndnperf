@@ -32,6 +32,7 @@ static void signal_handler(int signum) {
 
 int main(int argc, char *argv[]) {
     std::string prefix;
+    std::string uri;
     std::string file_path;
     size_t window;
     size_t start = 0;
@@ -40,6 +41,7 @@ int main(int argc, char *argv[]) {
     po::options_description desc("Options");
     desc.add_options()
             (",p", po::value<std::string>(&prefix)->default_value("/throughput"), "the prefix of the ndnperfserver")
+            (",a", po::value<std::string>(&uri), "use TCP face with address (uses FaceUri so ip or domain name should work, format is protocol://ip:port)")
             (",w", po::value<size_t>(&window)->default_value(DEFAULT_WINDOW), "the packet window size")
             (",d", po::value<std::string>(&file_path)->default_value(""), "the file to retrieve (unspecified = benchmark)")
             ("eon", po::bool_switch()->default_value(false), "exit on received nack")
@@ -63,18 +65,24 @@ int main(int argc, char *argv[]) {
         return -1;
     }
 
-    Client client(prefix, window, file_path);
-    client.setExitOnNack(vm["eon"].as<bool>());
+    Client* client;
+    if (!uri.empty()) {
+        client = new Client(prefix, uri, window, file_path);
+
+    } else {
+        client = new Client(prefix, window, file_path);
+    }
+    client->setExitOnNack(vm["eon"].as<bool>());
 
     signal(SIGINT, signal_handler);
 
-    client.start();
+    client->start();
 
     do {
         sleep(15);
     } while (!stop);
 
-    client.stop();
+    client->stop();
 
     return 0;
 }

@@ -39,6 +39,8 @@ private:
 public:
     Client(const std::string &prefix, size_t window, const std::string &file_path);
 
+    Client(const std::string &prefix, const std::string &uri, size_t window, const std::string &file_path);
+
     ~Client() override = default;
 
     void run() override;
